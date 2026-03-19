@@ -9,7 +9,7 @@ async function getArgon2(): Promise<typeof import('argon2')> {
   try {
     _argon2 = await import('argon2');
     return _argon2;
-  } catch {
+  } catch /* istanbul ignore next */ {
     throw new Error(
       '[nestjs-auth-module] Argon2PasswordHasher requires the `argon2` package.\n' +
         'Install it:  pnpm add argon2\n' +
