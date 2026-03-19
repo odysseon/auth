@@ -1,130 +1,226 @@
-# Auth
+# @your-org/nestjs-auth-module
 
-This project provides a user authentication service implemented with NestJS and MongoDB. It includes user registration, login, and role-based access control.
+A plug-and-play, identity-only NestJS authentication module built on
+**hexagonal architecture**. It handles **who you are** — not what you're
+allowed to do. Authorization is your application's concern.
 
-## Features
+## Design goals
 
-- **User Registration:** Create a new user with a username, email, and password.
-- **User Login:** Authenticate users and generate JWT tokens for session management.
-- **Password Hashing:** Secure password storage using PBKDF2 with a cryptographic salt.
-- **Role-Based Access Control:** Ensure users have the appropriate permissions to access certain routes.
-- **Token Refresh:** Generate and validate refresh tokens for prolonged sessions.
+- **Identity only.** No roles, no permissions, no RBAC.
+- **Hexagonal architecture.** Ports define what the module needs; your app provides adapters.
+- **ORM / DB agnostic.** Bring your own repository implementations.
+- **Library agnostic.** Every external npm dependency sits behind a port.
+  Swap `jose` → `jsonwebtoken`, `argon2` → `bcrypt`, `node:crypto` → a KMS
+  by passing one class. Zero changes to core logic.
+- **Capability flags.** Enable only the auth methods you need.
+- **True refresh-token rotation.** One-time-use tokens, SHA-256 hashed.
 
-## Installation
+## Architecture
 
-### Prerequisites
-
-- Node.js (>=14.x)
-- MongoDB (>=4.x)
-- npm (>=6.x)
-
-### Steps
-
-1. Clone the repository:
-
-   ```sh
-   git clone https://github.com/Phastboy/auth.git
-   cd auth
-   ```
-
-2. Install dependencies:
-
-   ```sh
-   npm install
-   ```
-
-3. Set up environment variables:
-
-   - Create a `.env` file in the root directory and add the necessary environment variables. Refer to `.env.example` for the required variables.
-
-4. Start the MongoDB server:
-
-   ```sh
-   mongod
-   ```
-
-5. Run the application:
-
-   ```sh
-   npm run start:dev
-   ```
-
-## Usage
-
-### Endpoints
-
-- **Register a new user:**
-
-  ```http
-  POST /auth/register
-  ```
-
-- **Login a user:**
-
-  ```http
-  POST /auth/login
-  ```
-
-- **Refresh token:**
-
-  ```http
-  POST /auth/refresh
-  ```
-
-### Example Requests
-
-#### Register
-
-```sh
-curl -X POST http://localhost:3000/auth/register \
--H 'Content-Type: application/json' \
--d '{
-  "username": "exampleuser",
-  "email": "user@example.com",
-  "password": "password123"
-}'
+```
+interfaces/ports/   ← contracts (zero deps — the inversion anchor)
+      ↑
+  adapters/         ← default implementations of the three internal ports
+      ↑
+    core/           ← AuthService + AuthModule (use-cases, wiring)
+  strategies/       ← Passport strategies
+    guards/         ← JwtAuthGuard, GoogleOAuthGuard
+ decorators/        ← @CurrentUser(), @Public()
 ```
 
-#### Login
+### Swappable adapters
 
-```sh
-curl -X POST http://localhost:3000/auth/login \
--H 'Content-Type: application/json' \
--d '{
-  "email": "user@example.com",
-  "password": "password123"
-}'
+| Port | Interface | Default | Swap option |
+|---|---|---|---|
+| JWT signing/verification | `IJwtSigner` | `JoseJwtSigner` (jose) | `jwtSigner:` |
+| Password hashing | `IPasswordHasher` | `Argon2PasswordHasher` (argon2id) | `passwordHasher:` |
+| Token hashing / generation | `ITokenHasher` | `CryptoTokenHasher` (node:crypto) | `tokenHasher:` |
+
+## Quick start
+
+### 1. Install
+
+```bash
+pnpm add @your-org/nestjs-auth-module
+# Peer deps
+pnpm add @nestjs/passport passport passport-jwt
+# Default adapter deps (install only what you use)
+pnpm add jose                    # JWT — always needed
+pnpm add argon2                  # passwords — needed for 'credentials' capability
+pnpm add passport-google-oauth20 # needed for 'google' capability
 ```
 
-## Running Tests
+### 2. Implement your repository ports
 
-To run the tests, use the following commands:
+```ts
+// user.repository.ts
+@Injectable()
+export class UserRepository implements IGoogleUserRepository<User> {
+  findById(id: string)          { return this.db.users.findOne({ id }); }
+  findByEmail(email: string)    { return this.db.users.findOne({ email }); }
+  findByGoogleId(id: string)    { return this.db.users.findOne({ googleId: id }); }
+  create(data: Partial<User>)   { return this.db.users.create(data); }
+  update(id, data)              { return this.db.users.update(id, data); }
+}
 
-- Unit tests:
+// refresh-token.repository.ts
+@Injectable()
+export class RefreshTokenRepository implements IRefreshTokenRepository {
+  create(data)                         { ... }
+  findByTokenHash(hash: string)        { ... }
+  deleteById(id: string)               { ... }
+  deleteAllForUser(userId: string)     { ... }
+}
+```
 
-  ```sh
-  npm run test
-  ```
+### 3. Register the module
 
-- End-to-end tests:
+```ts
+// app.module.ts
+AuthModule.forRootAsync({
+  imports:  [ConfigModule],
+  inject:   [ConfigService],
+  useFactory: (cfg: ConfigService) => ({
+    jwt: {
+      type:         'asymmetric',
+      privateKey:   cfg.get('JWT_PRIVATE_KEY'),
+      publicKey:    cfg.get('JWT_PUBLIC_KEY'),
+      accessToken:  { expiresIn: '15m', algorithm: 'ES256' },
+      refreshToken: { expiresIn: '7d' },
+    },
+    google: {
+      clientID:     cfg.get('GOOGLE_CLIENT_ID'),
+      clientSecret: cfg.get('GOOGLE_CLIENT_SECRET'),
+      callbackURL:  cfg.get('GOOGLE_CALLBACK_URL'),
+    },
+  }),
+  userRepository:         UserRepository,
+  refreshTokenRepository: RefreshTokenRepository,
+  enabledCapabilities:    ['credentials', 'google'],
+})
+```
 
-  ```sh
-  npm run test:e2e
-  ```
+### 4. Use in controllers
 
-- Test coverage:
+```ts
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
 
-  ```sh
-  npm run test:cov
-  ```
+  @Public()
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
 
-## Contributing
+  @Public()
+  @Post('login')
+  login(@Body() dto: LoginDto) {
+    return this.authService.loginWithCredentials(dto);
+  }
 
-Contributions are welcome! Please follow these steps to contribute:
+  @Public()
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  googleLogin() {}
 
-1. Fork the repository.
-2. Create a new branch.
-3. Make your changes (`git checkout -b feature`).
-4. Commit your changes (`git commit -m 'Add some feature'`).
-5. Push to the branch (`git push origin feature`).
-6. Open a pull request.
+  @Public()
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  googleCallback(@Req() req: AuthenticatedRequest) {
+    return this.authService.handleGoogleCallback(req.user);
+  }
+
+  @Public()
+  @Post('refresh')
+  refresh(@Body('refreshToken') token: string) {
+    return this.authService.rotateRefreshToken(token);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  logout(@CurrentUser() user: RequestUser) {
+    return this.authService.logout(user.userId);
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@CurrentUser() user: RequestUser) {
+    return user;
+  }
+}
+```
+
+### 5. Apply guard globally (recommended)
+
+```ts
+// app.module.ts
+providers: [
+  { provide: APP_GUARD, useClass: JwtAuthGuard },
+]
+// Then use @Public() on open endpoints instead of @UseGuards everywhere.
+```
+
+## Swapping an adapter
+
+No changes to any core file — only your module registration changes:
+
+```ts
+// swap-bcrypt.example.ts
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class BcryptPasswordHasher implements IPasswordHasher {
+  async hash(password: string)                 { return bcrypt.hash(password, 12); }
+  async verify(password: string, hash: string) { return bcrypt.compare(password, hash); }
+}
+
+// In AuthModule.forRootAsync():
+passwordHasher: BcryptPasswordHasher
+```
+
+## Testing
+
+Every external dependency is behind a port — mock the token, not the library:
+
+```ts
+const module = await Test.createTestingModule({ ... })
+  .overrideProvider(PORTS.PASSWORD_HASHER)
+  .useValue({ hash: jest.fn().mockResolvedValue('hash'), verify: jest.fn().mockResolvedValue(true) })
+  .overrideProvider(PORTS.JWT_SIGNER)
+  .useValue({ init: jest.fn(), sign: jest.fn().mockResolvedValue('token'), verify: jest.fn() })
+  .compile();
+```
+
+No real crypto runs in tests. Blazing fast, zero flakiness.
+
+## Exported API
+
+| Export | Description |
+|---|---|
+| `AuthModule` | Root module — `forRootAsync()` |
+| `AuthService` | All use-case methods |
+| `JwtAuthGuard` | Protect routes; respects `@Public()` |
+| `GoogleOAuthGuard` | Initiate / handle Google OAuth |
+| `@CurrentUser()` | Extract `RequestUser` from request |
+| `@Public()` | Opt out of global `JwtAuthGuard` |
+| `JoseJwtSigner` | Default JWT adapter (jose) |
+| `Argon2PasswordHasher` | Default password adapter (argon2id) |
+| `CryptoTokenHasher` | Default token adapter (node:crypto) |
+| `IJwtSigner` | Port — implement to swap JWT library |
+| `IPasswordHasher` | Port — implement to swap password hasher |
+| `ITokenHasher` | Port — implement to swap token hasher |
+| `IUserRepository` | Port — implement in your infra layer |
+| `IRefreshTokenRepository` | Port — implement in your infra layer |
+| `PORTS`, `AUTH_CAPABILITIES` | DI tokens for testing overrides |
+| All other interfaces | Full type surface |
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `JWT_PRIVATE_KEY` | Asymmetric only | PEM-encoded EC/RSA private key |
+| `JWT_PUBLIC_KEY` | Asymmetric only | PEM-encoded EC/RSA public key |
+| `GOOGLE_CLIENT_ID` | `google` capability | OAuth 2.0 client ID |
+| `GOOGLE_CLIENT_SECRET` | `google` capability | OAuth 2.0 client secret |
+| `GOOGLE_CALLBACK_URL` | `google` capability | OAuth 2.0 callback URL |
