@@ -8,7 +8,9 @@ import type { AuthUser } from './user.interface';
  *
  * The module will inject it wherever it needs to read or write users.
  */
-export interface IUserRepository<User extends Partial<AuthUser> = Partial<AuthUser>> {
+export interface IUserRepository<
+  User extends Partial<AuthUser> = Partial<AuthUser>,
+> {
   findById(id: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
   create(data: Partial<User>): Promise<User>;

@@ -2,7 +2,12 @@ import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, Profile, VerifyCallback } from 'passport-google-oauth20';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
-import type { GoogleOAuthConfig, IGoogleUserRepository, AuthUser, RequestUser } from '../interfaces';
+import type {
+  GoogleOAuthConfig,
+  IGoogleUserRepository,
+  AuthUser,
+  RequestUser,
+} from '../interfaces';
 
 /**
  * Passport strategy for Google OAuth 2.0.
@@ -79,7 +84,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       }
 
       if (!user?.id) {
-        return done(new UnauthorizedException('Failed to resolve user from Google profile'));
+        return done(
+          new UnauthorizedException(
+            'Failed to resolve user from Google profile',
+          ),
+        );
       }
 
       const requestUser: RequestUser = { userId: user.id };
