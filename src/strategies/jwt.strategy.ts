@@ -1,60 +1,62 @@
 import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { AUTH_CAPABILITIES, PORTS } from '../constants';
+import type { Algorithm } from 'jsonwebtoken';
+import { AUTH_CAPABILITIES } from '../constants';
 import type { JwtConfig, JwtPayload, RequestUser } from '../interfaces';
-import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
 import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
 
 /**
  * Passport strategy for Bearer token validation.
  *
- * `passport-jwt` handles extraction from the Authorization header and
- * initial signature verification (using the raw key material from JwtConfig).
- * After that, `validate()` runs the application-level checks via `IJwtSigner`
- * to enforce the `type: 'access'` discriminator.
+ * This class is the **Passport adapter boundary**. It is the one place in
+ * the module where coupling to `passport-jwt` is intentional and contained.
+ * Everything above this layer (AuthService, guards, decorators) is
+ * framework-agnostic by design.
  *
- * ### Why does the constructor still read JwtConfig directly?
- * `passport-jwt`'s `Strategy` constructor requires `secretOrKey` to be
- * passed synchronously — it does not support async key import. We pass the
- * raw PEM / secret here for Passport's own verification, and let `IJwtSigner`
- * handle the full verify path in `validate()`.
+ * ### Constraint: synchronous key requirement
+ * `passport-jwt`'s Strategy constructor requires `secretOrKey` synchronously.
+ * We satisfy this by reading the raw key material from `JwtConfig` directly.
+ * The full async key lifecycle (import, caching) is handled by `IJwtSigner`
+ * inside `AuthService`. This class only validates claims in `validate()`.
  *
- * If you swap to a signer that uses a different verification mechanism
- * (e.g. JWKS), override this strategy entirely and register it under the
- * 'jwt' Passport name.
+ * ### Swapping Passport entirely
+ * If you replace Passport with a different HTTP middleware, implement a new
+ * guard that calls `AuthService.verifyAccessToken()` (once you expose it)
+ * directly, and remove this strategy and `JwtAuthGuard`. The rest of the
+ * module is unaffected — `AuthService` depends on no HTTP framework.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     @Inject(AUTH_CAPABILITIES.JWT)
     config: JwtConfig,
-
-    @Inject(PORTS.JWT_SIGNER)
-    private readonly jwtSigner: IJwtSigner,
   ) {
-    // passport-jwt needs the raw key synchronously — the signer's async
-    // init() has already run via AuthService.onModuleInit() at this point.
     const secretOrKey = isSymmetric(config) ? config.secret : config.publicKey;
+
+    // passport-jwt's Algorithm[] is the jsonwebtoken union literal type.
+    // Our TokenSignOptions.algorithm is string? to stay library-agnostic at
+    // the port level. We narrow to Algorithm[] here at the adapter boundary.
+    const algorithms = config.accessToken.algorithm
+      ? [config.accessToken.algorithm as Algorithm]
+      : undefined;
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey,
-      algorithms: config.accessToken.algorithm
-        ? [config.accessToken.algorithm]
-        : undefined,
+      algorithms,
       issuer: config.accessToken.issuer,
       audience: config.accessToken.audience,
     });
   }
 
   /**
-   * Called by Passport after signature + expiry are verified.
-   * We re-verify through IJwtSigner to enforce the `type` discriminator
-   * and keep all payload validation in one place.
+   * Called by Passport after signature + expiry verification passes.
+   * Enforces the `type: 'access'` discriminator so refresh tokens cannot
+   * be presented as access tokens.
    */
-  async validate(payload: JwtPayload): Promise<RequestUser> {
+  validate(payload: JwtPayload): RequestUser {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token: missing sub claim');
     }

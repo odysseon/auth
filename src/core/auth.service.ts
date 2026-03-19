@@ -31,9 +31,15 @@ import { validateJwtConfig } from '../interfaces/configuration/jwt-config.interf
 function parseDurationToSeconds(value: string | number): number {
   if (typeof value === 'number') return value;
   const m = value.match(/^(\d+)([smhd])$/);
-  if (!m) throw new Error(`[nestjs-auth-module] Invalid duration format: "${value}"`);
+  if (!m)
+    throw new Error(`[nestjs-auth-module] Invalid duration format: "${value}"`);
   const n = parseInt(m[1], 10);
-  const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+  const multipliers: Record<string, number> = {
+    s: 1,
+    m: 60,
+    h: 3600,
+    d: 86400,
+  };
   return n * multipliers[m[2]];
 }
 
@@ -144,7 +150,8 @@ export class AuthService implements OnModuleInit {
 
   async handleGoogleCallback(requestUser: RequestUser): Promise<AuthResponse> {
     const user = await this.userRepo.findById(requestUser.userId);
-    if (!user?.id) throw new UnauthorizedException('User not found after Google OAuth');
+    if (!user?.id)
+      throw new UnauthorizedException('User not found after Google OAuth');
     return this.buildAuthResponse(user.id);
   }
 
@@ -158,7 +165,9 @@ export class AuthService implements OnModuleInit {
     const stored = await this.refreshTokenRepo!.findByTokenHash(tokenHash);
 
     if (!stored) {
-      throw new UnauthorizedException('Refresh token is invalid or has already been used');
+      throw new UnauthorizedException(
+        'Refresh token is invalid or has already been used',
+      );
     }
 
     if (new Date() > stored.expiresAt) {
@@ -185,30 +194,39 @@ export class AuthService implements OnModuleInit {
 
   // ── Password management ───────────────────────────────────────────────────
 
-  async changePassword(input: PasswordChangeInput): Promise<{ message: string }> {
+  async changePassword(
+    input: PasswordChangeInput,
+  ): Promise<{ message: string }> {
     const user = await this.userRepo.findById(input.userId);
     if (!user) throw new NotFoundException('User not found');
 
     if (!('password' in user) || !user.password) {
-      throw new BadRequestException('Password cannot be changed on OAuth-only accounts');
+      throw new BadRequestException(
+        'Password cannot be changed on OAuth-only accounts',
+      );
     }
 
     const currentValid = await this.passwordHasher.verify(
       input.currentPassword,
       user.password as string,
     );
-    if (!currentValid) throw new UnauthorizedException('Current password is incorrect');
+    if (!currentValid)
+      throw new UnauthorizedException('Current password is incorrect');
 
     const isSame = await this.passwordHasher.verify(
       input.newPassword,
       user.password as string,
     );
     if (isSame) {
-      throw new BadRequestException('New password must differ from the current password');
+      throw new BadRequestException(
+        'New password must differ from the current password',
+      );
     }
 
     const hashed = await this.passwordHasher.hash(input.newPassword);
-    await this.userRepo.update(input.userId, { password: hashed } as Partial<AuthUser>);
+    await this.userRepo.update(input.userId, {
+      password: hashed,
+    } as Partial<AuthUser>);
 
     return { message: 'Password changed successfully' };
   }
@@ -218,7 +236,9 @@ export class AuthService implements OnModuleInit {
     if (!user) throw new NotFoundException('User not found');
 
     const hashed = await this.passwordHasher.hash(input.newPassword);
-    await this.userRepo.update(input.userId, { password: hashed } as Partial<AuthUser>);
+    await this.userRepo.update(input.userId, {
+      password: hashed,
+    } as Partial<AuthUser>);
 
     return { message: 'Password set successfully' };
   }
@@ -228,7 +248,9 @@ export class AuthService implements OnModuleInit {
     if (!user) throw new NotFoundException('User not found');
     if (user.isEmailVerified) return { message: 'Email already verified' };
 
-    await this.userRepo.update(userId, { isEmailVerified: true } as Partial<AuthUser>);
+    await this.userRepo.update(userId, {
+      isEmailVerified: true,
+    } as Partial<AuthUser>);
     return { message: 'Email verified successfully' };
   }
 
@@ -237,7 +259,9 @@ export class AuthService implements OnModuleInit {
   private async buildAuthResponse(userId: string): Promise<AuthResponse> {
     const [accessToken, refreshToken] = await Promise.all([
       this.signAccessToken(userId),
-      this.refreshTokenRepo ? this.issueRefreshToken(userId) : Promise.resolve(undefined),
+      this.refreshTokenRepo
+        ? this.issueRefreshToken(userId)
+        : Promise.resolve(undefined),
     ]);
 
     return {

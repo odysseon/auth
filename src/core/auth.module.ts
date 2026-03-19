@@ -119,7 +119,9 @@ export class AuthModule {
     const googleCapabilityProvider: Provider = {
       provide: AUTH_CAPABILITIES.GOOGLE,
       useFactory: (cfg: AuthModuleConfig) =>
-        options.enabledCapabilities.includes('google') ? (cfg.google ?? null) : null,
+        options.enabledCapabilities.includes('google')
+          ? (cfg.google ?? null)
+          : null,
       inject: [AUTH_CONFIG],
     };
 
