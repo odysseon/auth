@@ -1,4 +1,4 @@
-# @your-org/nestjs-auth-module
+# @odysseon/auth
 
 A plug-and-play, identity-only NestJS authentication module built on
 **hexagonal architecture**. It handles **who you are** — not what you're
@@ -41,7 +41,7 @@ interfaces/ports/   ← contracts (zero deps — the inversion anchor)
 ### 1. Install
 
 ```bash
-pnpm add @your-org/nestjs-auth-module
+pnpm add @odysseon/auth
 # Peer deps
 pnpm add @nestjs/passport passport passport-jwt
 # Default adapter deps (install only what you use)

@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    branches: [main, beta, alpha]
+
+# Only one release at a time — never run concurrently.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ── Gate: wait for CI to pass on this exact commit ─────────────────────────
+  # This job polls the ci.yml workflow until it succeeds or fails.
+  # A release is never published from a commit where CI is red.
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI workflow to complete
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'Build'          # The final job in ci.yml
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 20            # Poll every 20 seconds
+          allowed-conclusions: success
+
+  # ── Release ────────────────────────────────────────────────────────────────
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    needs: wait-for-ci
+    permissions:
+      contents: write       # push CHANGELOG.md + version tag
+      issues: write         # comment on resolved issues
+      pull-requests: write  # comment on merged PRs
+      id-token: write       # npm provenance (SLSA)
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history needed for semantic-release to analyse commits.
+          fetch-depth: 0
+          # Use a PAT so the release commit bypasses branch protection.
+          # Set RELEASE_TOKEN in repo secrets (or fall back to GITHUB_TOKEN
+          # if branch protection doesn't block the bot).
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          # Authenticate to the npm registry for publishing.
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Release
+        run: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
