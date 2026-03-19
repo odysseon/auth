@@ -103,7 +103,7 @@ export class AuthService implements OnModuleInit {
     await this.jwtSigner.init(this.jwtConfig);
     this.logger.log(
       `AuthService ready — JWT type: ${this.jwtConfig.type}, ` +
-        `refresh tokens: ${this.refreshTokenRepo ? 'enabled' : 'disabled'}`,
+        `refresh tokens: ${this.refreshEnabled ? 'enabled' : 'disabled'}`,
     );
   }
 
@@ -139,7 +139,6 @@ export class AuthService implements OnModuleInit {
     const user = await this.userRepo.create({
       email: input.email,
       password: hashed,
-      isEmailVerified: false,
     } as Partial<AuthUser>);
 
     if (!user?.id) throw new Error('User creation failed: no ID returned');
@@ -164,7 +163,10 @@ export class AuthService implements OnModuleInit {
     if (!plainToken) throw new BadRequestException('Refresh token is required');
 
     const tokenHash = this.tokenHasher.hash(plainToken);
-    const stored = await this.refreshTokenRepo!.findByTokenHash(tokenHash);
+
+    // Atomically find-and-delete so two concurrent requests with the same
+    // token cannot both succeed and mint independent token pairs.
+    const stored = await this.refreshTokenRepo!.consumeByTokenHash(tokenHash);
 
     if (!stored) {
       throw new UnauthorizedException(
@@ -173,11 +175,9 @@ export class AuthService implements OnModuleInit {
     }
 
     if (new Date() > stored.expiresAt) {
-      await this.refreshTokenRepo!.deleteById(stored.id);
+      // Token was consumed above; no further cleanup needed.
       throw new UnauthorizedException('Refresh token has expired');
     }
-
-    await this.refreshTokenRepo!.deleteById(stored.id);
 
     const user = await this.userRepo.findById(stored.userId);
     if (!user?.id) throw new UnauthorizedException('User no longer exists');
@@ -245,17 +245,6 @@ export class AuthService implements OnModuleInit {
     return { message: 'Password set successfully' };
   }
 
-  async verifyEmail(userId: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-    if (user.isEmailVerified) return { message: 'Email already verified' };
-
-    await this.userRepo.update(userId, {
-      isEmailVerified: true,
-    } as Partial<AuthUser>);
-    return { message: 'Email verified successfully' };
-  }
-
   // ── Token verification (for custom guards / non-Passport setups) ──────────
 
   /**
@@ -298,7 +287,7 @@ export class AuthService implements OnModuleInit {
   private async buildAuthResponse(userId: string): Promise<AuthResponse> {
     const [accessToken, refreshToken] = await Promise.all([
       this.signAccessToken(userId),
-      this.refreshTokenRepo
+      this.refreshEnabled
         ? this.issueRefreshToken(userId)
         : Promise.resolve(undefined),
     ]);
@@ -331,11 +320,21 @@ export class AuthService implements OnModuleInit {
     return plainToken;
   }
 
+  private get refreshEnabled(): boolean {
+    return !!(this.refreshTokenRepo && this.jwtConfig.refreshToken);
+  }
+
   private assertRefreshEnabled(): void {
     if (!this.refreshTokenRepo) {
       throw new BadRequestException(
         'Refresh tokens are not enabled. Provide a refreshTokenRepository ' +
           'in AuthModule.forRootAsync().',
+      );
+    }
+    if (!this.jwtConfig.refreshToken) {
+      throw new BadRequestException(
+        'Refresh tokens are not enabled. Set jwt.refreshToken in the module ' +
+          'config to activate refresh-token issuance.',
       );
     }
   }

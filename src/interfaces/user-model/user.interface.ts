@@ -5,7 +5,6 @@ export interface BaseUser {
   /** Stable, opaque user identifier (UUID or similar). */
   id: string;
   email: string;
-  isEmailVerified: boolean;
 }
 
 /** Fields present when the user can authenticate with a password. */
