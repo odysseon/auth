@@ -174,6 +174,24 @@ export class AuthModule {
 
     // ── Refresh token repository (optional) ───────────────────────────────
     if (options.refreshTokenRepository) {
+      // Validate that jwt.refreshToken config is also present; a repository
+      // without the config block would cause a silent runtime failure when
+      // AuthService tries to read rtConfig.expiresIn.
+      const configValidationProvider: Provider = {
+        provide: 'REFRESH_TOKEN_CONFIG_GUARD',
+        useFactory: (cfg: AuthModuleConfig) => {
+          if (!cfg.jwt.refreshToken) {
+            throw new Error(
+              '[nestjs-auth-module] refreshTokenRepository is provided but ' +
+                'jwt.refreshToken config is missing. Either add a ' +
+                'jwt.refreshToken block or remove refreshTokenRepository.',
+            );
+          }
+          return true;
+        },
+        inject: [AUTH_CONFIG],
+      };
+      providers.push(configValidationProvider);
       providers.push({
         provide: PORTS.REFRESH_TOKEN_REPOSITORY,
         useClass: options.refreshTokenRepository,

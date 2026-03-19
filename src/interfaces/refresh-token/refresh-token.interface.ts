@@ -34,6 +34,19 @@ export interface IRefreshTokenRepository<
    */
   findByTokenHash(tokenHash: string): Promise<RT | null>;
 
+  /**
+   * Atomically find and delete a token by its hash in a single
+   * database operation (e.g. `DELETE … RETURNING *` or a transaction).
+   *
+   * Returns the deleted record, or `null` if no matching row was found
+   * (token unknown, already consumed, or belongs to a concurrent request).
+   *
+   * **Implementations must guarantee atomicity.** Two concurrent calls with
+   * the same hash must each see at most one success; the second must return
+   * `null`, never a duplicate row.
+   */
+  consumeByTokenHash(tokenHash: string): Promise<RT | null>;
+
   /** Delete a specific token (one-time-use enforcement). */
   deleteById(id: string): Promise<void>;
 

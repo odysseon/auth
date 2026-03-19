@@ -13,7 +13,8 @@ import type {
  * Passport strategy for Google OAuth 2.0.
  *
  * Responsibilities (identity only):
- * - Validate that Google returned a verified email address.
+ * - Confirm that Google returned an email address on the profile (a
+ *   prerequisite for account lookup — not an in-module verification step).
  * - Find the user by Google subject ID; if absent, look up by email and link
  *   the Google ID; if still absent, create a new user record.
  * - Attach `{ userId }` to `request.user` — controllers receive this via
@@ -22,6 +23,9 @@ import type {
  * User creation/linking is intentionally kept in this strategy so that
  * `AuthService` stays focused on token issuance. The strategy acts as the
  * "find-or-create" adapter at the Passport boundary.
+ *
+ * Note: email-verification semantics are out of scope for this module and
+ * are left entirely to the consuming application.
  */
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -78,7 +82,6 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
           user = await this.userRepo.create({
             email,
             googleId: profile.id,
-            isEmailVerified: true,
           } as Partial<AuthUser>);
         }
       }
