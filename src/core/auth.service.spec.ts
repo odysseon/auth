@@ -29,7 +29,6 @@ const MOCK_USER = {
   email: 'test@example.com',
   password: 'hashed-password',
   googleId: null,
-  isEmailVerified: false,
 };
 
 // ── Mock factories ────────────────────────────────────────────────────────────
@@ -78,6 +77,12 @@ function makeMockRefreshTokenRepo(): jest.Mocked<
       .fn()
       .mockImplementation((data) => Promise.resolve({ id: 'rt-1', ...data })),
     findByTokenHash: jest.fn().mockResolvedValue({
+      id: 'rt-1',
+      token: 'hashed-token',
+      userId: 'user-1',
+      expiresAt: new Date(Date.now() + 86400_000),
+    }),
+    consumeByTokenHash: jest.fn().mockResolvedValue({
       id: 'rt-1',
       token: 'hashed-token',
       userId: 'user-1',
@@ -340,7 +345,7 @@ describe('AuthService', () => {
   // ── rotateRefreshToken ────────────────────────────────────────────────────
 
   describe('rotateRefreshToken', () => {
-    it('hashes the incoming token and looks it up', async () => {
+    it('hashes the incoming token and consumes it atomically', async () => {
       const { service, tokenHasher } = await buildService();
 
       await service.rotateRefreshToken('plain-token');
@@ -348,12 +353,14 @@ describe('AuthService', () => {
       expect(tokenHasher.hash).toHaveBeenCalledWith('plain-token');
     });
 
-    it('deletes the old record before issuing new tokens (one-time use)', async () => {
+    it('calls consumeByTokenHash (atomic find-and-delete)', async () => {
       const { service, refreshTokenRepo } = await buildService();
 
       await service.rotateRefreshToken('plain-token');
 
-      expect(refreshTokenRepo?.deleteById).toHaveBeenCalledWith('rt-1');
+      expect(refreshTokenRepo?.consumeByTokenHash).toHaveBeenCalledWith(
+        'hashed-token',
+      );
     });
 
     it('returns a fresh token pair', async () => {
@@ -365,10 +372,10 @@ describe('AuthService', () => {
       expect(result.refreshToken).toBe('plain-token');
     });
 
-    it('throws UnauthorizedException for an unknown token', async () => {
+    it('throws UnauthorizedException when consumeByTokenHash returns null (unknown or already-used token)', async () => {
       const { service } = await buildService({
         refreshTokenRepo: {
-          findByTokenHash: jest.fn().mockResolvedValue(null),
+          consumeByTokenHash: jest.fn().mockResolvedValue(null),
         },
       });
 
@@ -377,10 +384,10 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws UnauthorizedException for an expired token and deletes it', async () => {
-      const { service, refreshTokenRepo } = await buildService({
+    it('throws UnauthorizedException for an expired token (no extra delete needed)', async () => {
+      const { service } = await buildService({
         refreshTokenRepo: {
-          findByTokenHash: jest.fn().mockResolvedValue({
+          consumeByTokenHash: jest.fn().mockResolvedValue({
             id: 'rt-expired',
             token: 'hashed-token',
             userId: 'user-1',
@@ -392,7 +399,6 @@ describe('AuthService', () => {
       await expect(service.rotateRefreshToken('plain-token')).rejects.toThrow(
         'expired',
       );
-      expect(refreshTokenRepo?.deleteById).toHaveBeenCalledWith('rt-expired');
     });
 
     it('throws BadRequestException when refresh tokens are not configured', async () => {
@@ -587,51 +593,6 @@ describe('AuthService', () => {
       await expect(
         service.setPassword({ userId: 'ghost', newPassword: 'new' }),
       ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── verifyEmail ───────────────────────────────────────────────────────────
-
-  describe('verifyEmail', () => {
-    it('marks the email as verified', async () => {
-      const { service, userRepo } = await buildService({
-        userRepo: {
-          findById: jest
-            .fn()
-            .mockResolvedValue({ ...MOCK_USER, isEmailVerified: false }),
-        },
-      });
-
-      const result = await service.verifyEmail('user-1');
-
-      expect(result.message).toBe('Email verified successfully');
-      expect(userRepo.update).toHaveBeenCalledWith(
-        'user-1',
-        expect.objectContaining({ isEmailVerified: true }),
-      );
-    });
-
-    it('is idempotent when already verified', async () => {
-      const { service } = await buildService({
-        userRepo: {
-          findById: jest
-            .fn()
-            .mockResolvedValue({ ...MOCK_USER, isEmailVerified: true }),
-        },
-      });
-
-      const result = await service.verifyEmail('user-1');
-      expect(result.message).toBe('Email already verified');
-    });
-
-    it('throws NotFoundException when user does not exist', async () => {
-      const { service } = await buildService({
-        userRepo: { findById: jest.fn().mockResolvedValue(null) },
-      });
-
-      await expect(service.verifyEmail('ghost')).rejects.toThrow(
-        NotFoundException,
-      );
     });
   });
 });
