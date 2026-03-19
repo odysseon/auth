@@ -26,7 +26,7 @@ Steps:
 2. Looks up the user by Google subject ID (`profile.id`).
 3. If not found, checks for an existing account with the same email and
    links the Google ID to it (account merging).
-4. If still not found, creates a new user record with `isEmailVerified: true`.
+4. If still not found, creates a new user record.
 5. Resolves to `{ userId }` which `AuthService.handleGoogleCallback()` then
    uses to issue a token pair.
 

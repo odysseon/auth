@@ -42,7 +42,6 @@ class InMemoryUserRepository implements IUserRepository<TestUser> {
       email: data.email ?? '',
       password: data.password ?? null,
       googleId: data.googleId ?? null,
-      isEmailVerified: data.isEmailVerified ?? false,
     };
     this.store.set(id, user);
     return Promise.resolve(user);
@@ -71,6 +70,12 @@ class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
     return Promise.resolve(
       [...this.store.values()].find((t) => t.token === hash) ?? null,
     );
+  }
+  consumeByTokenHash(hash: string) {
+    const record = [...this.store.values()].find((t) => t.token === hash);
+    if (!record) return Promise.resolve(null);
+    this.store.delete(record.id);
+    return Promise.resolve(record);
   }
   deleteById(id: string) {
     this.store.delete(id);
@@ -261,29 +266,6 @@ describe('AuthModule (e2e)', () => {
           newPassword: 'new-password',
         }),
       ).rejects.toThrow('Current password is incorrect');
-    });
-  });
-
-  describe('verifyEmail', () => {
-    it('marks email as verified', async () => {
-      const { user } = await authService.register({
-        email: 'verify@example.com',
-        password: 'password',
-      });
-
-      const result = await authService.verifyEmail(user.userId);
-      expect(result.message).toBe('Email verified successfully');
-    });
-
-    it('is idempotent when already verified', async () => {
-      const { user } = await authService.register({
-        email: 'already-verified@example.com',
-        password: 'password',
-      });
-
-      await authService.verifyEmail(user.userId);
-      const second = await authService.verifyEmail(user.userId);
-      expect(second.message).toBe('Email already verified');
     });
   });
 });

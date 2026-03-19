@@ -14,7 +14,6 @@ describe('GoogleStrategy', () => {
     id: 'user-1',
     email: 'user@example.com',
     googleId: 'google-123',
-    isEmailVerified: true,
     password: null,
   };
 
@@ -125,7 +124,6 @@ describe('GoogleStrategy', () => {
         expect.objectContaining({
           email: 'new@example.com',
           googleId: 'google-789',
-          isEmailVerified: true,
         }),
       );
       expect(done).toHaveBeenCalledWith(null, { userId: 'user-3' });
