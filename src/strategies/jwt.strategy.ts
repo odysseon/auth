@@ -22,8 +22,8 @@ import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
  *
  * ### Swapping Passport entirely
  * If you replace Passport with a different HTTP middleware, implement a new
- * guard that calls `AuthService.verifyAccessToken()` (once you expose it)
- * directly, and remove this strategy and `JwtAuthGuard`. The rest of the
+ * guard that calls `authService.verifyAccessToken(token)`
+ * and remove this strategy and `JwtAuthGuard`. The rest of the
  * module is unaffected — `AuthService` depends on no HTTP framework.
  */
 @Injectable()

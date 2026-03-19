@@ -1,6 +1,6 @@
 # src/
 
-Source root for `@your-org/nestjs-auth-module`.
+Source root for `@odysseon/auth`.
 
 ## Layer map
 
