@@ -76,19 +76,12 @@ function makeMockRefreshTokenRepo(): jest.Mocked<
     create: jest
       .fn()
       .mockImplementation((data) => Promise.resolve({ id: 'rt-1', ...data })),
-    findByTokenHash: jest.fn().mockResolvedValue({
-      id: 'rt-1',
-      token: 'hashed-token',
-      userId: 'user-1',
-      expiresAt: new Date(Date.now() + 86400_000),
-    }),
     consumeByTokenHash: jest.fn().mockResolvedValue({
       id: 'rt-1',
       token: 'hashed-token',
       userId: 'user-1',
       expiresAt: new Date(Date.now() + 86400_000),
     }),
-    deleteById: jest.fn().mockResolvedValue(undefined),
     deleteAllForUser: jest.fn().mockResolvedValue(undefined),
   };
 }
