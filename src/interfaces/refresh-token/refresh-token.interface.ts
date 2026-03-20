@@ -1,58 +1,73 @@
 /**
  * Minimum shape of a stored refresh token record.
- * Consumers may extend this with extra fields (e.g. device info, IP).
+ * Consumers may extend this with extra fields (e.g. device fingerprint, IP).
  */
 export interface IRefreshToken {
   /** Stable record identifier. */
   id: string;
-  /** Hashed token value (never store plaintext). */
+  /** SHA-256 hash of the plaintext token. Never store the plaintext itself. */
   token: string;
-  /** Owner of this token. */
+  /** The user this token belongs to. */
   userId: string;
-  /** Hard expiry timestamp. */
+  /** Hard expiry — tokens found past this timestamp must be rejected. */
   expiresAt: Date;
 }
 
 /**
  * Port: refresh token persistence.
  *
- * Implement and pass as `refreshTokenRepository` to enable refresh-token
- * rotation.  If omitted, `AuthService.rotateRefreshToken()` will throw.
+ * Implement this in your infrastructure layer and pass the class to
+ * `AuthModule.forRootAsync({ refreshTokenRepository: MyRepo })`.
+ *
+ * ### Why only these four methods?
+ * Interface Segregation: every method here is called by `AuthService`.
+ * No method exists as a "might be useful someday" addition.
+ *
+ * | Method                | Called by                          |
+ * |-----------------------|------------------------------------|
+ * | `create`              | `issueRefreshToken` (after login)  |
+ * | `consumeByTokenHash`  | `rotateRefreshToken`               |
+ * | `deleteAllForUser`    | `logout`                           |
+ * | `deleteExpired`       | your own cleanup job (optional)    |
  */
 export interface IRefreshTokenRepository<
   RT extends IRefreshToken = IRefreshToken,
 > {
   /**
    * Persist a new hashed refresh token record.
-   * Called immediately after issuing a token to the client.
+   *
+   * Called immediately after a token is issued to the client — the record
+   * must exist before the response is sent so rotation can find it.
    */
   create(data: Omit<RT, 'id'>): Promise<RT>;
 
   /**
-   * Retrieve a valid (non-expired) token by its SHA-256 hash.
-   * Returns `null` if not found or already consumed.
-   */
-  findByTokenHash(tokenHash: string): Promise<RT | null>;
-
-  /**
-   * Atomically find and delete a token by its hash in a single
-   * database operation (e.g. `DELETE … RETURNING *` or a transaction).
+   * Atomically find **and delete** a token by its SHA-256 hash.
    *
-   * Returns the deleted record, or `null` if no matching row was found
-   * (token unknown, already consumed, or belongs to a concurrent request).
+   * This is the core of one-time-use enforcement. The operation must be
+   * atomic — a single `DELETE … RETURNING *` (SQL) or a transaction —
+   * so that two concurrent rotation requests with the same token each see
+   * exactly one success. The second must receive `null`.
    *
-   * **Implementations must guarantee atomicity.** Two concurrent calls with
-   * the same hash must each see at most one success; the second must return
-   * `null`, never a duplicate row.
+   * Returns the deleted record on success, or `null` when:
+   * - no record matches the hash (token unknown), or
+   * - the record was already consumed by a concurrent request.
    */
   consumeByTokenHash(tokenHash: string): Promise<RT | null>;
 
-  /** Delete a specific token (one-time-use enforcement). */
-  deleteById(id: string): Promise<void>;
-
-  /** Revoke all tokens for a user — "logout all devices". */
+  /**
+   * Delete every refresh token belonging to `userId`.
+   *
+   * Called by `AuthService.logout()` to invalidate all sessions across
+   * all devices simultaneously.
+   */
   deleteAllForUser(userId: string): Promise<void>;
 
-  /** Optional housekeeping: purge expired rows from the store. */
+  /**
+   * Purge expired records from the store.
+   *
+   * Optional — implement and call on a schedule (cron, queue job) to
+   * prevent unbounded table growth. `AuthService` never calls this.
+   */
   deleteExpired?(): Promise<void>;
 }

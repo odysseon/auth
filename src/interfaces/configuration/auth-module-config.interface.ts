@@ -24,9 +24,7 @@ export interface AuthModuleConfig {
 export interface AuthModuleAsyncOptions<
   User extends Partial<AuthUser> = Partial<AuthUser>,
   RT extends IRefreshToken = IRefreshToken,
->
-  extends
-    Pick<ModuleMetadata, 'imports'>,
+> extends Pick<ModuleMetadata, 'imports'>,
     Pick<FactoryProvider<AuthModuleConfig>, 'useFactory' | 'inject'> {
   /**
    * Class that implements `IUserRepository` (or `IGoogleUserRepository`
