@@ -13,17 +13,37 @@ import type { ITokenExtractor } from '../interfaces/ports/token-extractor.port';
  * ```
  * Authorization: Bearer eyJhbGciOiJFUzI1NiJ9...
  * ```
+ *
+ * Defensive handling:
+ * - If the header value is an array (some frameworks forward multi-value
+ *   headers as arrays), the first entry is used.
+ * - Non-string values and missing headers both return `null`.
+ * - An empty or whitespace-only token (e.g. `"Bearer "`) returns `null`.
  */
 @Injectable()
 export class BearerTokenExtractor implements ITokenExtractor {
-  extract(request: unknown): string | null {
-    const req = request as { headers?: Record<string, string | undefined> };
-    const header = req?.headers?.['authorization'];
-    if (!header) return null;
+  // Matches "Bearer <token>" case-insensitively; captures everything after
+  // the required whitespace so tokens containing internal spaces are rejected
+  // at the JWT layer, not here.
+  private static readonly BEARER_RE = /^Bearer\s+(\S+)$/i;
 
-    // RFC 7235 §2.1 — scheme is case-insensitive.
-    const [scheme, token] = header.split(' ');
-    if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
-    return token ?? null;
+  extract(request: unknown): string | null {
+    const req = request as {
+      headers?: Record<string, string | string[] | undefined>;
+    };
+
+    let raw = req?.headers?.['authorization'];
+    if (!raw) return null;
+
+    // Some HTTP server / proxy implementations forward repeated headers as
+    // an array. Use only the first value and discard the rest.
+    if (Array.isArray(raw)) {
+      raw = raw[0];
+    }
+
+    if (typeof raw !== 'string') return null;
+
+    const match = BearerTokenExtractor.BEARER_RE.exec(raw);
+    return match?.[1] ?? null;
   }
 }
