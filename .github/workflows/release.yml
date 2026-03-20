@@ -20,10 +20,10 @@ jobs:
       - name: Wait for CI workflow to complete
         uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          ref: ${{ github.ref }}
-          check-name: "Build"          # The final job in ci.yml
+          ref: ${{ github.sha }}
+          check-name: "CI"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 20            # Poll every 20 seconds
+          wait-interval: 20
           allowed-conclusions: success
 
   # ── Release ────────────────────────────────────────────────────────────────
