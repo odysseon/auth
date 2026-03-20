@@ -1,18 +1,27 @@
 import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import type { Algorithm } from 'jsonwebtoken';
-import { AUTH_CAPABILITIES } from '../constants';
+import { AUTH_CAPABILITIES, PORTS } from '../constants';
 import type { JwtConfig, JwtPayload, RequestUser } from '../interfaces';
+import type { ITokenExtractor } from '../interfaces/ports/token-extractor.port';
 import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
 
 /**
- * Passport strategy for Bearer token validation.
+ * Passport strategy for JWT validation.
  *
  * This class is the **Passport adapter boundary**. It is the one place in
  * the module where coupling to `passport-jwt` is intentional and contained.
  * Everything above this layer (AuthService, guards, decorators) is
  * framework-agnostic by design.
+ *
+ * ### Token extraction
+ * Token extraction is delegated to the `ITokenExtractor` port, injected via
+ * `PORTS.TOKEN_EXTRACTOR`. `AuthModule` defaults this to
+ * `BearerTokenExtractor` (`Authorization: Bearer <token>`). Pass a different
+ * adapter to `AuthModule.forRootAsync({ tokenExtractor: MyExtractor })` to
+ * read tokens from a cookie, a query parameter, or any custom source without
+ * touching this class.
  *
  * ### Constraint: synchronous key requirement
  * `passport-jwt`'s Strategy constructor requires `secretOrKey` synchronously.
@@ -22,15 +31,17 @@ import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
  *
  * ### Swapping Passport entirely
  * If you replace Passport with a different HTTP middleware, implement a new
- * guard that calls `authService.verifyAccessToken(token)`
- * and remove this strategy and `JwtAuthGuard`. The rest of the
- * module is unaffected — `AuthService` depends on no HTTP framework.
+ * guard that calls `authService.verifyAccessToken(token)` and remove this
+ * strategy and `JwtAuthGuard`. The rest of the module is unaffected —
+ * `AuthService` depends on no HTTP framework.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     @Inject(AUTH_CAPABILITIES.JWT)
     config: JwtConfig,
+    @Inject(PORTS.TOKEN_EXTRACTOR)
+    tokenExtractor: ITokenExtractor,
   ) {
     const secretOrKey = isSymmetric(config) ? config.secret : config.publicKey;
 
@@ -42,7 +53,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       : undefined;
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: (req: unknown) => tokenExtractor.extract(req),
       ignoreExpiration: false,
       secretOrKey,
       algorithms,

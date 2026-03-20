@@ -5,11 +5,16 @@ credentials from incoming requests.
 
 ## `jwt.strategy.ts` — `JwtStrategy`
 
-Validates `Authorization: Bearer <token>` on every protected route.
+Validates JWTs on every protected route.
 
 Steps:
-1. Extracts the token from the Bearer header.
-2. Verifies signature using the key from `JwtConfig` (symmetric or asymmetric).
+1. Delegates token extraction to the injected `ITokenExtractor`
+   (`PORTS.TOKEN_EXTRACTOR`). The default is `BearerTokenExtractor`
+   (`Authorization: Bearer <token>`). Swap it via
+   `AuthModule.forRootAsync({ tokenExtractor: ... })` to read from a cookie,
+   a query parameter, or any custom source.
+2. Verifies the token signature using the key from `JwtConfig`
+   (symmetric or asymmetric).
 3. Checks expiry, issuer, and audience claims (if configured).
 4. Rejects tokens where `payload.type !== 'access'` — prevents a refresh
    token from being presented as an access token.
@@ -22,7 +27,8 @@ No database call is made per request — the JWT is self-contained.
 Handles the Google OAuth 2.0 round-trip.
 
 Steps:
-1. Validates that Google returned a verified email address.
+1. Confirms that Google returned an email address on the profile (required
+   for account lookup — not an in-module verification step).
 2. Looks up the user by Google subject ID (`profile.id`).
 3. If not found, checks for an existing account with the same email and
    links the Google ID to it (account merging).
@@ -34,10 +40,10 @@ Steps:
 
 Passport strategies are the entry point for OAuth flows. The strategy
 already has access to the full Google profile and must resolve a `userId`
-synchronously within Passport's `validate()` lifecycle. Pushing the
-find-or-create logic into `AuthService` would require an extra round-trip
-or a more complex interface. The strategy acts as the "Google adapter" at
-the Passport boundary; `AuthService` stays focused on token issuance.
+within Passport's `validate()` lifecycle. Pushing the find-or-create logic
+into `AuthService` would require a more complex interface. The strategy
+acts as the "Google adapter" at the Passport boundary; `AuthService` stays
+focused on token issuance.
 
 ## Adding a new strategy
 

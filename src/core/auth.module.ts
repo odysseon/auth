@@ -9,9 +9,11 @@ import { GoogleOAuthGuard } from '../guards/google-oauth.guard';
 import { JoseJwtSigner } from '../adapters/jose-jwt-signer.adapter';
 import { Argon2PasswordHasher } from '../adapters/argon2-password-hasher.adapter';
 import { CryptoTokenHasher } from '../adapters/crypto-token-hasher.adapter';
+import { BearerTokenExtractor } from '../adapters/bearer-token-extractor.adapter';
 import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
 import type { IPasswordHasher } from '../interfaces/ports/password-hasher.port';
 import type { ITokenHasher } from '../interfaces/ports/token-hasher.port';
+import type { ITokenExtractor } from '../interfaces/ports/token-extractor.port';
 import type {
   AuthModuleAsyncOptions,
   AuthModuleConfig,
@@ -45,6 +47,21 @@ export interface AuthModuleAdapterOverrides {
    * Swap to: a KMS-backed, HSM-backed, or any `ITokenHasher` implementation.
    */
   tokenHasher?: Type<ITokenHasher>;
+
+  /**
+   * Custom token extractor adapter.
+   * Default: `BearerTokenExtractor` — reads `Authorization: Bearer <token>`.
+   * Swap to: `CookieTokenExtractor`, `QueryParamTokenExtractor`, or any
+   * `ITokenExtractor` implementation to change where JwtStrategy looks for
+   * the access token on incoming requests.
+   *
+   * @example
+   * ```ts
+   * // Read from a cookie named 'access_token' instead of the header:
+   * tokenExtractor: new CookieTokenExtractor('access_token')
+   * ```
+   */
+  tokenExtractor?: Type<ITokenExtractor> | ITokenExtractor;
 }
 
 /**
@@ -55,11 +72,12 @@ export interface AuthModuleAdapterOverrides {
  * `AuthService`, `JwtAuthGuard`, and `GoogleOAuthGuard` without re-importing.
  *
  * ### Default adapters (all swappable)
- * | Port               | Default adapter        | Swap via                  |
- * |--------------------|------------------------|---------------------------|
- * | `IJwtSigner`       | `JoseJwtSigner`        | `jwtSigner: MyAdapter`    |
- * | `IPasswordHasher`  | `Argon2PasswordHasher` | `passwordHasher: MyAdapter` |
- * | `ITokenHasher`     | `CryptoTokenHasher`    | `tokenHasher: MyAdapter`  |
+ * | Port                | Default adapter          | Swap via                    |
+ * |---------------------|--------------------------|-----------------------------|
+ * | `IJwtSigner`        | `JoseJwtSigner`          | `jwtSigner:`                |
+ * | `IPasswordHasher`   | `Argon2PasswordHasher`   | `passwordHasher:`           |
+ * | `ITokenHasher`      | `CryptoTokenHasher`      | `tokenHasher:`              |
+ * | `ITokenExtractor`   | `BearerTokenExtractor`   | `tokenExtractor:`           |
  *
  * @example
  * ```ts
@@ -88,6 +106,7 @@ export interface AuthModuleAdapterOverrides {
  *   // jwtSigner:      JsonwebtokenSigner,
  *   // passwordHasher: BcryptPasswordHasher,
  *   // tokenHasher:    KmsTokenHasher,
+ *   // tokenExtractor: new CookieTokenExtractor('access_token'),
  * })
  * ```
  */
@@ -149,6 +168,18 @@ export class AuthModule {
       useClass: tokenHasherClass,
     };
 
+    // tokenExtractor accepts either a class (registered via useClass so it
+    // can receive its own injected deps) or a pre-built instance (useValue).
+    const tokenExtractorProvider: Provider =
+      options.tokenExtractor == null
+        ? { provide: PORTS.TOKEN_EXTRACTOR, useClass: BearerTokenExtractor }
+        : typeof options.tokenExtractor === 'function'
+          ? { provide: PORTS.TOKEN_EXTRACTOR, useClass: options.tokenExtractor }
+          : {
+              provide: PORTS.TOKEN_EXTRACTOR,
+              useValue: options.tokenExtractor,
+            };
+
     // ── Assemble ───────────────────────────────────────────────────────────
     const providers: Provider[] = [
       configProvider,
@@ -158,6 +189,7 @@ export class AuthModule {
       jwtSignerProvider,
       passwordHasherProvider,
       tokenHasherProvider,
+      tokenExtractorProvider,
       AuthService,
       JwtStrategy,
       JwtAuthGuard,
@@ -170,6 +202,7 @@ export class AuthModule {
       PORTS.JWT_SIGNER,
       PORTS.PASSWORD_HASHER,
       PORTS.TOKEN_HASHER,
+      PORTS.TOKEN_EXTRACTOR,
     ];
 
     // ── Refresh token repository (optional) ───────────────────────────────

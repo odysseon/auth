@@ -1,19 +1,24 @@
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from './jwt.strategy';
-import { AUTH_CAPABILITIES } from '../constants';
 import type { JwtConfig } from '../interfaces';
+import type { ITokenExtractor } from '../interfaces/ports/token-extractor.port';
 
 /**
  * JwtStrategy.validate() is a plain method — we test it directly without
  * spinning up a Passport pipeline. The constructor wiring to passport-jwt
  * is covered by the e2e integration test.
+ *
+ * The extractor is injected into the constructor but is only exercised by
+ * passport-jwt at request time, so a no-op stub is sufficient here.
  */
 describe('JwtStrategy', () => {
+  const stubExtractor: ITokenExtractor = {
+    extract: () => null,
+  };
+
   function makeStrategy(config: JwtConfig): JwtStrategy {
-    const s = Object.create(JwtStrategy.prototype) as JwtStrategy;
-    Reflect.defineMetadata(AUTH_CAPABILITIES.JWT, config, s);
-    return s;
+    return new JwtStrategy(config, stubExtractor);
   }
 
   const SYMMETRIC_CONFIG: JwtConfig = {
@@ -79,6 +84,23 @@ describe('JwtStrategy', () => {
       expect(strategy.validate({ sub: 'u', type: 'access' })).toEqual({
         userId: 'u',
       });
+    });
+  });
+
+  describe('constructor — extractor integration', () => {
+    it('calls extract on the provided ITokenExtractor when passport invokes jwtFromRequest', () => {
+      const extract = jest.fn().mockReturnValue(null);
+      const extractor: ITokenExtractor = { extract };
+      const strategy = new JwtStrategy(SYMMETRIC_CONFIG, extractor);
+
+      // Access the internal passport-jwt options to trigger jwtFromRequest.
+      const jwtFromRequest = (strategy as any)._jwtFromRequest as (
+        req: unknown,
+      ) => string | null;
+      const fakeReq = { headers: { authorization: 'Bearer tok' } };
+      jwtFromRequest(fakeReq);
+
+      expect(extract).toHaveBeenCalledWith(fakeReq);
     });
   });
 });
