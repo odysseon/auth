@@ -68,7 +68,6 @@ jobs:
         run: pnpm test:cov
 
       - name: Upload coverage report
-        # Upload once — from the primary Node version on push only.
         if: matrix.node-version == '24' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
@@ -122,9 +121,15 @@ jobs:
         run: pnpm build
 
       - name: Verify dist exports
-        # Smoke-check that the compiled package is importable as consumers
-        # would use it — catches broken re-exports or missing declarations.
-        run: node -e "const m = require('./dist/index.js'); const required = ['AuthModule','AuthService','JwtAuthGuard']; required.forEach(k => { if (!m[k]) throw new Error('Missing export: ' + k); }); console.log('Export smoke check passed');"
+        run: |
+          node <<EOF
+          const m = require('./dist/index.js');
+          const required = ['AuthModule','AuthService','JwtAuthGuard'];
+          required.forEach(k => {
+            if (!m[k]) throw new Error('Missing export: ' + k);
+          });
+          console.log('Export smoke check passed');
+          EOF
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
