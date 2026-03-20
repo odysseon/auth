@@ -17,11 +17,14 @@ export { Public, IS_PUBLIC_KEY } from './decorators/public.decorator';
 export { JoseJwtSigner } from './adapters/jose-jwt-signer.adapter';
 export { Argon2PasswordHasher } from './adapters/argon2-password-hasher.adapter';
 export { CryptoTokenHasher } from './adapters/crypto-token-hasher.adapter';
+export { BearerTokenExtractor } from './adapters/bearer-token-extractor.adapter';
+export { CookieTokenExtractor } from './adapters/cookie-token-extractor.adapter';
+export { QueryParamTokenExtractor } from './adapters/query-param-token-extractor.adapter';
 
 // ── Full interface surface ─────────────────────────────────────────────────
 // IUserRepository, IGoogleUserRepository, IRefreshTokenRepository
 //   → implement in your infrastructure layer (ORM adapters etc.)
-// IJwtSigner, IPasswordHasher, ITokenHasher
+// IJwtSigner, IPasswordHasher, ITokenHasher, ITokenExtractor
 //   → implement to swap out default external library adapters
 export * from './interfaces';
 

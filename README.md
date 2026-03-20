@@ -4,23 +4,28 @@ A plug-and-play, identity-only NestJS authentication module built on
 **hexagonal architecture**. It handles **who you are** — not what you're
 allowed to do. Authorization is your application's concern.
 
+## Requirements
+
+- **Node.js >= 22**
+- **pnpm >= 9**
+
 ## Design goals
 
 - **Identity only.** No roles, no permissions, no RBAC.
 - **Hexagonal architecture.** Ports define what the module needs; your app provides adapters.
 - **ORM / DB agnostic.** Bring your own repository implementations.
 - **Library agnostic.** Every external npm dependency sits behind a port.
-  Swap `jose` → `jsonwebtoken`, `argon2` → `bcrypt`, `node:crypto` → a KMS
-  by passing one class. Zero changes to core logic.
+  Swap `jose` → `jsonwebtoken`, `argon2` → `bcrypt`, `node:crypto` → a KMS,
+  or `Bearer header` → a cookie by passing one class. Zero changes to core logic.
 - **Capability flags.** Enable only the auth methods you need.
-- **True refresh-token rotation.** One-time-use tokens, SHA-256 hashed.
+- **True refresh-token rotation.** One-time-use tokens, atomically consumed, SHA-256 hashed.
 
 ## Architecture
 
 ```
 interfaces/ports/   ← contracts (zero deps — the inversion anchor)
       ↑
-  adapters/         ← default implementations of the three internal ports
+  adapters/         ← default implementations of the four internal ports
       ↑
     core/           ← AuthService + AuthModule (use-cases, wiring)
   strategies/       ← Passport strategies
@@ -35,6 +40,7 @@ interfaces/ports/   ← contracts (zero deps — the inversion anchor)
 | JWT signing/verification | `IJwtSigner` | `JoseJwtSigner` (jose) | `jwtSigner:` |
 | Password hashing | `IPasswordHasher` | `Argon2PasswordHasher` (argon2id) | `passwordHasher:` |
 | Token hashing / generation | `ITokenHasher` | `CryptoTokenHasher` (node:crypto) | `tokenHasher:` |
+| JWT extraction from request | `ITokenExtractor` | `BearerTokenExtractor` (Authorization header) | `tokenExtractor:` |
 
 ## Quick start
 
@@ -66,10 +72,9 @@ export class UserRepository implements IGoogleUserRepository<User> {
 // refresh-token.repository.ts
 @Injectable()
 export class RefreshTokenRepository implements IRefreshTokenRepository {
-  create(data)                         { ... }
-  findByTokenHash(hash: string)        { ... }
-  deleteById(id: string)               { ... }
-  deleteAllForUser(userId: string)     { ... }
+  create(data)                           { ... }
+  consumeByTokenHash(hash: string)       { ... } // atomic find-and-delete
+  deleteAllForUser(userId: string)       { ... }
 }
 ```
 
@@ -138,13 +143,11 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
   logout(@CurrentUser() user: RequestUser) {
     return this.authService.logout(user.userId);
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: RequestUser) {
     return user;
   }
@@ -179,6 +182,26 @@ export class BcryptPasswordHasher implements IPasswordHasher {
 passwordHasher: BcryptPasswordHasher
 ```
 
+### Swapping the token extractor
+
+By default tokens are read from `Authorization: Bearer <token>`. To read from
+a cookie instead:
+
+```ts
+import { CookieTokenExtractor } from '@odysseon/auth';
+
+// In AuthModule.forRootAsync():
+tokenExtractor: new CookieTokenExtractor('access_token')
+```
+
+Requires `cookie-parser` middleware in your application:
+
+```ts
+// main.ts
+import * as cookieParser from 'cookie-parser';
+app.use(cookieParser());
+```
+
 ## Testing
 
 Every external dependency is behind a port — mock the token, not the library:
@@ -189,6 +212,8 @@ const module = await Test.createTestingModule({ ... })
   .useValue({ hash: jest.fn().mockResolvedValue('hash'), verify: jest.fn().mockResolvedValue(true) })
   .overrideProvider(PORTS.JWT_SIGNER)
   .useValue({ init: jest.fn(), sign: jest.fn().mockResolvedValue('token'), verify: jest.fn() })
+  .overrideProvider(PORTS.TOKEN_EXTRACTOR)
+  .useValue({ extract: jest.fn().mockReturnValue('mock-token') })
   .compile();
 ```
 
@@ -207,9 +232,13 @@ No real crypto runs in tests. Blazing fast, zero flakiness.
 | `JoseJwtSigner` | Default JWT adapter (jose) |
 | `Argon2PasswordHasher` | Default password adapter (argon2id) |
 | `CryptoTokenHasher` | Default token adapter (node:crypto) |
+| `BearerTokenExtractor` | Default extractor — `Authorization: Bearer` header |
+| `CookieTokenExtractor` | Extractor — named HTTP cookie |
+| `QueryParamTokenExtractor` | Extractor — URL query parameter |
 | `IJwtSigner` | Port — implement to swap JWT library |
 | `IPasswordHasher` | Port — implement to swap password hasher |
 | `ITokenHasher` | Port — implement to swap token hasher |
+| `ITokenExtractor` | Port — implement to swap token extraction |
 | `IUserRepository` | Port — implement in your infra layer |
 | `IRefreshTokenRepository` | Port — implement in your infra layer |
 | `PORTS`, `AUTH_CAPABILITIES` | DI tokens for testing overrides |

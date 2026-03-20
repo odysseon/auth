@@ -1,7 +1,7 @@
 # src/adapters/
 
-Default implementations of the three internal ports. Every adapter in this
-directory is **swappable** — pass a replacement class to
+Default implementations of the four internal ports. Every adapter in this
+directory is **swappable** — pass a replacement class (or instance) to
 `AuthModule.forRootAsync()` and the rest of the module is completely unaffected.
 
 ## Adapters
@@ -55,7 +55,7 @@ export class BcryptPasswordHasher implements IPasswordHasher {
 
 ### `CryptoTokenHasher` → `ITokenHasher`
 
-Wraps Node's built-in **`crypto`** module. No extra dependencies.
+Wraps Node's built-in **`node:crypto`** module. No extra dependencies.
 
 SHA-256 is used for hashing refresh tokens because the tokens being hashed
 are already high-entropy random byte strings (256-bit default). A slow
@@ -73,6 +73,48 @@ export class KmsTokenHasher implements ITokenHasher {
 
 // AuthModule.forRootAsync({ tokenHasher: KmsTokenHasher, ... })
 ```
+
+---
+
+### `BearerTokenExtractor` → `ITokenExtractor`  *(default)*
+
+Reads the JWT from the `Authorization: Bearer <token>` header. This is
+`AuthModule`'s default — no configuration required for standard API setups.
+
+**To swap:** Use `CookieTokenExtractor`, `QueryParamTokenExtractor`, or
+implement `ITokenExtractor` and pass it as `tokenExtractor:`.
+
+---
+
+### `CookieTokenExtractor` → `ITokenExtractor`
+
+Reads the JWT from a named HTTP cookie. Requires `cookie-parser` middleware
+to be active in the host application.
+
+```ts
+// main.ts
+import * as cookieParser from 'cookie-parser';
+app.use(cookieParser());
+
+// AuthModule.forRootAsync({ tokenExtractor: new CookieTokenExtractor('access_token'), ... })
+```
+
+---
+
+### `QueryParamTokenExtractor` → `ITokenExtractor`
+
+Reads the JWT from a URL query parameter.
+
+Suitable for WebSocket handshakes, server-sent events, or file-download
+links. **Avoid for standard API requests** — query parameters are logged by
+most HTTP servers and proxies.
+
+```ts
+// AuthModule.forRootAsync({ tokenExtractor: new QueryParamTokenExtractor('token'), ... })
+// → reads ?token=<jwt> from the URL
+```
+
+---
 
 ## Dependency direction
 

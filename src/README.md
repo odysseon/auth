@@ -9,9 +9,9 @@ src/
 ├── index.ts              ← Public API surface (only import from here)
 │
 ├── interfaces/           ← Ports & domain types (zero framework or library deps)
-│   └── ports/            ← Internal ports: IJwtSigner, IPasswordHasher, ITokenHasher
+│   └── ports/            ← Internal ports: IJwtSigner, IPasswordHasher, ITokenHasher, ITokenExtractor
 ├── constants/            ← DI injection tokens (Symbols)
-├── adapters/             ← Default implementations of the three internal ports
+├── adapters/             ← Default implementations of the four internal ports
 ├── core/                 ← AuthModule + AuthService (use-case layer)
 ├── strategies/           ← Passport strategies (JWT, Google)
 ├── guards/               ← JwtAuthGuard, GoogleOAuthGuard
@@ -23,7 +23,7 @@ src/
 ```
 interfaces/ports/  (contracts — zero deps)
        ↑
-  adapters/        (wrap external libs: jose, argon2, node:crypto)
+  adapters/        (wrap external libs: jose, argon2, node:crypto, and header/cookie/query parsing)
        ↑
    core/ ──────────────────────────────────────── strategies/
 (AuthModule wires                           (inject ports by token,
@@ -47,6 +47,7 @@ AuthModule.forRootAsync({
   jwtSigner:      JsonwebtokenSigner,   // replaces JoseJwtSigner (jose)
   passwordHasher: BcryptPasswordHasher, // replaces Argon2PasswordHasher (argon2)
   tokenHasher:    KmsTokenHasher,       // replaces CryptoTokenHasher (node:crypto)
+  tokenExtractor: new CookieTokenExtractor('access_token'), // replaces BearerTokenExtractor
   // ... rest of options
 })
 ```
