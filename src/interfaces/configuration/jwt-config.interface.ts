@@ -69,10 +69,7 @@ export function isAsymmetric(cfg: JwtConfig): cfg is AsymmetricJwtConfig {
 // ── Startup validation ─────────────────────────────────────────────────────
 
 /**
- * Validates `JwtConfig` at module initialisation, producing a clear error
- * message rather than a cryptic runtime failure during the first request.
- *
- * Called automatically by `AuthModule` — you do not need to call this yourself.
+ * Validates `JwtConfig` at module initialisation.
  */
 export function validateJwtConfig(cfg: JwtConfig): void {
   if (!cfg.accessToken?.expiresIn) {
