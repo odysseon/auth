@@ -1,11 +1,15 @@
 /**
- * Shared sign options applied to every token issued.
- * `expiresIn` is required — never issue immortal tokens.
+ * Sign options applied to every access token issued.
+ * `expiresIn` is required — immortal tokens are never acceptable.
  */
 export interface TokenSignOptions {
-  /** e.g. '15m', '7d', or seconds as a number */
+  /** Duration string (e.g. `'15m'`, `'7d'`) or seconds as a number. */
   expiresIn: string | number;
-  /** JWT algorithm. Defaults: 'ES256' (asymmetric) or 'HS256' (symmetric). */
+  /**
+   * JWT algorithm identifier.
+   * Defaults to `'ES256'` for asymmetric configs and `'HS256'` for symmetric.
+   * Must be a value accepted by your `IJwtSigner` adapter.
+   */
   algorithm?: string;
   /** `iss` claim — strongly recommended in multi-service environments. */
   issuer?: string;
@@ -18,27 +22,37 @@ export interface SymmetricJwtConfig {
   type: 'symmetric';
   secret: string | Buffer;
   accessToken: TokenSignOptions;
-  /** Omit to disable refresh tokens. */
+  /** Omit to disable refresh token issuance entirely. */
   refreshToken?: RefreshTokenConfig;
 }
 
-/** Asymmetric key config (ES256 / RS256 / etc.). */
+/** Asymmetric key config (ES256 / RS256 / PS256 / etc.). */
 export interface AsymmetricJwtConfig {
   type: 'asymmetric';
   privateKey: string | Buffer;
   publicKey: string | Buffer;
   accessToken: TokenSignOptions;
-  /** Omit to disable refresh tokens. */
+  /** Omit to disable refresh token issuance entirely. */
   refreshToken?: RefreshTokenConfig;
 }
 
 export type JwtConfig = SymmetricJwtConfig | AsymmetricJwtConfig;
 
-/** Opaque token config for refresh tokens (not JWTs — stored hashes). */
+/**
+ * Configuration for opaque refresh tokens.
+ * Refresh tokens are random byte strings stored as SHA-256 hashes — they are
+ * not JWTs and carry no claims of their own.
+ */
 export interface RefreshTokenConfig {
-  /** Lifetime expressed as seconds or a string like '7d'. */
+  /**
+   * Lifetime of each issued refresh token.
+   * Accepts a duration string (`'7d'`, `'2w'`) or seconds as a number.
+   */
   expiresIn: string | number;
-  /** Byte length of the random token before hashing. Default: 32. */
+  /**
+   * Entropy of the generated plaintext token in bytes.
+   * Default: 32 bytes → 256 bits. Do not lower this below 16.
+   */
   tokenLength?: number;
 }
 
@@ -52,17 +66,18 @@ export function isAsymmetric(cfg: JwtConfig): cfg is AsymmetricJwtConfig {
   return cfg.type === 'asymmetric';
 }
 
-// ── Validation helper ──────────────────────────────────────────────────────
+// ── Startup validation ─────────────────────────────────────────────────────
 
 /**
- * Called at module initialisation to catch misconfiguration early.
- * Throws a descriptive `Error` rather than letting a cryptic runtime failure
- * surface later during a request.
+ * Validates `JwtConfig` at module initialisation, producing a clear error
+ * message rather than a cryptic runtime failure during the first request.
+ *
+ * Called automatically by `AuthModule` — you do not need to call this yourself.
  */
 export function validateJwtConfig(cfg: JwtConfig): void {
   if (!cfg.accessToken?.expiresIn) {
     throw new Error(
-      '[nestjs-auth-module] jwt.accessToken.expiresIn is required — ' +
+      '[@odysseon/auth] jwt.accessToken.expiresIn is required — ' +
         'never issue immortal access tokens.',
     );
   }
@@ -70,13 +85,13 @@ export function validateJwtConfig(cfg: JwtConfig): void {
   if (cfg.type === 'symmetric') {
     if (!cfg.secret) {
       throw new Error(
-        '[nestjs-auth-module] jwt.secret is required for symmetric config.',
+        '[@odysseon/auth] jwt.secret is required for symmetric config.',
       );
     }
   } else {
     if (!cfg.privateKey || !cfg.publicKey) {
       throw new Error(
-        '[nestjs-auth-module] jwt.privateKey and jwt.publicKey are both ' +
+        '[@odysseon/auth] jwt.privateKey and jwt.publicKey are both ' +
           'required for asymmetric config.',
       );
     }

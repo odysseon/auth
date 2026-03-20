@@ -1,37 +1,49 @@
 /**
  * Port: password hashing.
  *
- * Defines what the auth module needs from a password hasher.
- * The default adapter ships with `argon2`, but you can provide any
- * implementation — bcrypt, scrypt, PBKDF2 — by satisfying this interface
- * and passing it as `passwordHasher` to `AuthModule.forRootAsync()`.
+ * `AuthService` depends only on this interface for all password operations.
+ * The default adapter uses `argon2id`. Swap it by implementing this interface
+ * and passing the class to `AuthModule.forRootAsync({ passwordHasher: ... })`.
  *
- * @example Swap to bcrypt
+ * ### Why is this a separate port from `ITokenHasher`?
+ * Passwords are low-entropy and must be hashed with a slow, memory-hard
+ * algorithm (argon2id, bcrypt, scrypt). Refresh tokens are already
+ * high-entropy random byte strings and only need SHA-256. Conflating the
+ * two would force every `IPasswordHasher` implementation to also handle
+ * token generation, and every `ITokenHasher` to also support slow hashing.
+ *
+ * ### Swapping the default (Argon2PasswordHasher → bcrypt)
  * ```ts
- * // bcrypt-password-hasher.adapter.ts
  * import * as bcrypt from 'bcrypt';
  *
  * @Injectable()
  * export class BcryptPasswordHasher implements IPasswordHasher {
- *   async hash(password: string) { return bcrypt.hash(password, 12); }
- *   async verify(password: string, hash: string) { return bcrypt.compare(password, hash); }
+ *   async hash(password: string): Promise<string> {
+ *     return bcrypt.hash(password, 12);
+ *   }
+ *   async verify(password: string, hash: string): Promise<boolean> {
+ *     return bcrypt.compare(password, hash);
+ *   }
  * }
  *
- * // Then in AuthModule.forRootAsync():
+ * // In AuthModule.forRootAsync():
  * passwordHasher: BcryptPasswordHasher
  * ```
  */
 export interface IPasswordHasher {
   /**
-   * Produce a salted hash of `password` suitable for long-term storage.
-   * The implementation must use a slow, memory-hard algorithm (argon2id,
-   * bcrypt, scrypt) — never a raw SHA family function.
+   * Produce a salted, slow hash of `password` suitable for long-term storage.
+   *
+   * Must use a memory-hard algorithm (argon2id, bcrypt, scrypt).
+   * Never use a raw SHA family function here.
    */
   hash(password: string): Promise<string>;
 
   /**
    * Return `true` if `password` matches `hash`, `false` otherwise.
-   * Must never throw on a hash-format mismatch — return `false` instead.
+   *
+   * Must not throw on a hash-format mismatch — return `false` instead.
+   * Constant-time comparison is strongly recommended to resist timing attacks.
    */
   verify(password: string, hash: string): Promise<boolean>;
 }
