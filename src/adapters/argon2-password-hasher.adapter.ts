@@ -9,9 +9,9 @@ async function getArgon2(): Promise<typeof import('argon2')> {
   try {
     _argon2 = await import('argon2');
     return _argon2;
-  } catch /* istanbul ignore next */ {
+  } catch {
     throw new Error(
-      '[nestjs-auth-module] Argon2PasswordHasher requires the `argon2` package.\n' +
+      '[@odysseon/auth] Argon2PasswordHasher requires the `argon2` package.\n' +
         'Install it:  pnpm add argon2\n' +
         'Or supply a custom passwordHasher adapter that does not need argon2.',
     );
@@ -48,7 +48,6 @@ export class Argon2PasswordHasher implements IPasswordHasher {
     try {
       return await argon2.verify(hash, password);
     } catch {
-      // argon2 throws on malformed hashes — treat as mismatch, not error.
       return false;
     }
   }

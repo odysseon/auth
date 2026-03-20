@@ -37,7 +37,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   ) {
     if (!config) {
       throw new Error(
-        '[nestjs-auth-module] GoogleStrategy instantiated but no Google config ' +
+        '[@odysseon/auth] GoogleStrategy instantiated but no Google config ' +
           "was provided. Add 'google' to enabledCapabilities and supply google config.",
       );
     }

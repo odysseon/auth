@@ -182,7 +182,7 @@ export class AuthModule {
         useFactory: (cfg: AuthModuleConfig) => {
           if (!cfg.jwt.refreshToken) {
             throw new Error(
-              '[nestjs-auth-module] refreshTokenRepository is provided but ' +
+              '[@odysseon/auth] refreshTokenRepository is provided but ' +
                 'jwt.refreshToken config is missing. Either add a ' +
                 'jwt.refreshToken block or remove refreshTokenRepository.',
             );
