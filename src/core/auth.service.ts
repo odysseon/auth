@@ -60,17 +60,17 @@ function parseDurationToSeconds(value: string | number): number {
  * | Method                 | Capability  | Description                              |
  * |------------------------|-------------|------------------------------------------|
  * | `loginWithCredentials` | credentials | Verify email + password, issue tokens    |
- * | `register`             | credentials | Create user, hash password, issue tokens |
+ * | `register`             | credentials | Hash password, create user, issue tokens |
  * | `handleGoogleCallback` | google      | Issue tokens after Passport OAuth flow   |
- * | `rotateRefreshToken`   | refresh     | Validate, consume, re-issue token pair   |
+ * | `rotateRefreshToken`   | refresh     | Atomic consume + re-issue (one-time use) |
  * | `logout`               | refresh     | Revoke all refresh tokens for a user     |
+ * | `verifyAccessToken`    | any         | Verify a Bearer token (custom guards)    |
  * | `changePassword`       | credentials | Change password (requires current)       |
- * | `setPassword`          | credentials | Force-set password (admin / reset)       |
- * | `verifyEmail`          | credentials | Mark email as verified                   |
+ * | `setPassword`          | credentials | Force-set password (admin / reset flow)  |
  *
  * ### What this service does NOT do
- * - Authorisation (roles, permissions, policies)
- * - Email delivery
+ * - Authorisation (roles, permissions, resource policies)
+ * - Email delivery or verification
  * - Session management
  */
 @Injectable()

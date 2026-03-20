@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from './jwt.strategy';
 import { AUTH_CAPABILITIES } from '../constants';
