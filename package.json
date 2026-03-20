@@ -1,6 +1,6 @@
 {
   "name": "@odysseon/auth",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Identity-only authentication module for NestJS — hexagonal architecture, ORM-agnostic",
   "author": "Odysseon",
   "license": "MIT",
@@ -126,6 +126,7 @@
       "!**/core/auth.module.ts",
       "!**/decorators/**",
       "!**/guards/google-oauth.guard.ts",
+      "!**/examples/**",
       "!**/*.spec.ts"
     ],
     "coverageDirectory": "../coverage",

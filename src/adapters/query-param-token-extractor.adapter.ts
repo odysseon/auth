@@ -24,11 +24,22 @@ export class QueryParamTokenExtractor implements ITokenExtractor {
 
   extract(request: unknown): string | null {
     const req = request as {
-      query?: Record<string, string | string[] | undefined>;
+      query?: Record<string, unknown>;
     };
+
     const value = req?.query?.[this.paramName];
-    if (!value) return null;
-    // query values may be string[] when the param appears multiple times.
-    return Array.isArray(value) ? (value[0] ?? null) : value;
+
+    if (Array.isArray(value)) {
+      // Repeated param (?token=a&token=b) — use the first non-empty string.
+      const first = value[0];
+      return typeof first === 'string' && first.length > 0 ? first : null;
+    }
+
+    if (typeof value === 'string') {
+      return value.length > 0 ? value : null;
+    }
+
+    // undefined, null, number, object, or any other unexpected type.
+    return null;
   }
 }
