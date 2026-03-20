@@ -5,7 +5,7 @@ external libraries it depends on.
 
 These ports exist specifically to invert the dependency direction on external
 npm packages. The core (`AuthService`, `JwtStrategy`) imports from here;
-it never imports `jose`, `argon2`, or `crypto` directly.
+it never imports `jose`, `argon2`, `crypto`, or `passport-jwt` directly.
 
 ## Ports
 
@@ -43,6 +43,20 @@ Abstracts the JWT library.
 Default adapter: `JoseJwtSigner` (jose)
 Swap to: jsonwebtoken, fast-jwt, any JWT library
 
+### `ITokenExtractor`
+Abstracts how a JWT is extracted from an incoming HTTP request.
+
+| Method | Signature |
+|---|---|
+| `extract` | `(request: unknown) → string \| null` |
+
+`JwtStrategy` calls `tokenExtractor.extract(req)` and passes the result to
+`passport-jwt` as `jwtFromRequest`. Return `null` to signal "no token" —
+never throw.
+
+Default adapter: `BearerTokenExtractor` (`Authorization: Bearer <token>`)
+Swap to: `CookieTokenExtractor`, `QueryParamTokenExtractor`, or a custom implementation
+
 ## Rule
 
 **Nothing in `ports/` may import from adapters or from any external library.**
@@ -57,6 +71,7 @@ AuthModule.forRootAsync({
   jwtSigner:      MyJwtSigner,       // replaces JoseJwtSigner
   passwordHasher: MyPasswordHasher,  // replaces Argon2PasswordHasher
   tokenHasher:    MyTokenHasher,     // replaces CryptoTokenHasher
+  tokenExtractor: MyTokenExtractor,  // replaces BearerTokenExtractor
 })
 ```
 

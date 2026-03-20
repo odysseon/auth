@@ -37,6 +37,7 @@ the whole config object, so they stay narrowly scoped.
 | `PORTS.JWT_SIGNER` | `IJwtSigner` | `JoseJwtSigner` | `jwtSigner: YourClass` |
 | `PORTS.PASSWORD_HASHER` | `IPasswordHasher` | `Argon2PasswordHasher` | `passwordHasher: YourClass` |
 | `PORTS.TOKEN_HASHER` | `ITokenHasher` | `CryptoTokenHasher` | `tokenHasher: YourClass` |
+| `PORTS.TOKEN_EXTRACTOR` | `ITokenExtractor` | `BearerTokenExtractor` | `tokenExtractor: YourClass` |
 
 ## Testing overrides
 
@@ -45,5 +46,9 @@ the whole config object, so they stay narrowly scoped.
 {
   provide: PORTS.PASSWORD_HASHER,
   useValue: { hash: jest.fn(), verify: jest.fn().mockResolvedValue(true) },
+}
+{
+  provide: PORTS.TOKEN_EXTRACTOR,
+  useValue: { extract: jest.fn().mockReturnValue('mock-token') },
 }
 ```

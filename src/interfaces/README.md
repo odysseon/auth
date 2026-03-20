@@ -14,6 +14,7 @@ The core layer depends on these; adapters implement them.
 | `IJwtSigner` | `JoseJwtSigner` (jose) | `jwtSigner:` in `forRootAsync()` |
 | `IPasswordHasher` | `Argon2PasswordHasher` (argon2) | `passwordHasher:` in `forRootAsync()` |
 | `ITokenHasher` | `CryptoTokenHasher` (node:crypto) | `tokenHasher:` in `forRootAsync()` |
+| `ITokenExtractor` | `BearerTokenExtractor` (Authorization header) | `tokenExtractor:` in `forRootAsync()` |
 
 ### `configuration/`
 Config shapes passed to `AuthModule.forRootAsync()`.

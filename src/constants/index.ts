@@ -26,4 +26,6 @@ export const PORTS = Object.freeze({
   PASSWORD_HASHER: Symbol('PASSWORD_HASHER'),
   /** ITokenHasher — defaults to CryptoTokenHasher (node:crypto). */
   TOKEN_HASHER: Symbol('TOKEN_HASHER'),
+  /** ITokenExtractor — defaults to BearerTokenExtractor (Authorization header). */
+  TOKEN_EXTRACTOR: Symbol('TOKEN_EXTRACTOR'),
 });
