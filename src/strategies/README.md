@@ -45,6 +45,19 @@ into `AuthService` would require a more complex interface. The strategy
 acts as the "Google adapter" at the Passport boundary; `AuthService` stays
 focused on token issuance.
 
+### Error handling in `validate()`
+
+Two categories of failure are distinguished:
+
+- **Expected auth failures** (no email returned, user cannot be resolved):
+  `done(new UnauthorizedException(...))`. Passport recognises `HttpException`
+  instances and routes them through the *fail* path, producing a 401. The
+  client receives the correct status without the error surfacing as a crash.
+
+- **Unexpected exceptions** (repository errors, network failures):
+  `done(err)` in the `catch` block. Passport routes these through the *error*
+  path, producing a 500 and preserving the original stack trace for debugging.
+
 ## Adding a new strategy
 
 1. Create `src/strategies/my-provider.strategy.ts`.

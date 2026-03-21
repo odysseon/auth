@@ -9,33 +9,37 @@ src/
 ├── index.ts              ← Public API surface (only import from here)
 │
 ├── interfaces/           ← Ports & domain types (zero framework or library deps)
-│   └── ports/            ← Internal ports: IJwtSigner, IPasswordHasher, ITokenHasher, ITokenExtractor
+│   └── ports/            ← IJwtSigner, IPasswordHasher, ITokenHasher, ITokenExtractor, ILogger
+├── errors/               ← AuthError + AuthErrorCode (zero deps — thrown by AuthService)
 ├── constants/            ← DI injection tokens (Symbols)
-├── adapters/             ← Default implementations of the four internal ports
+├── adapters/             ← Default implementations of the five internal ports
 ├── core/                 ← AuthModule + AuthService (use-case layer)
+├── filters/              ← AuthExceptionFilter (NestJS HTTP adapter for AuthError)
 ├── strategies/           ← Passport strategies (JWT, Google)
 ├── guards/               ← JwtAuthGuard, GoogleOAuthGuard
-└── decorators/           ← @CurrentUser(), @Public()
+├── decorators/           ← @CurrentUser(), @Public()
+└── examples/             ← Reference-only code (excluded from dist/)
 ```
 
 ## Dependency direction
 
 ```
 interfaces/ports/  (contracts — zero deps)
+errors/            (AuthError — zero deps)
        ↑
-  adapters/        (wrap external libs: jose, argon2, node:crypto, and header/cookie/query parsing)
+  adapters/        (wrap external libs: jose, argon2, node:crypto, console)
        ↑
    core/ ──────────────────────────────────────── strategies/
 (AuthModule wires                           (inject ports by token,
  ports → adapters,                           never libs directly)
  AuthService uses ports)
        ↑
-   guards/ / decorators/
+   filters/ / guards/ / decorators/
 ```
 
-**Nothing above `interfaces/` is imported by anything below it.**
-`AuthService` and `JwtStrategy` depend only on port interfaces — never on
-`jose`, `argon2`, or any other external library directly.
+**Nothing above `interfaces/` or `errors/` is imported by anything below it.**
+`AuthService` throws `AuthError` (from `errors/`) — never NestJS HTTP exceptions.
+`AuthExceptionFilter` (in `filters/`) is the only place that maps `AuthError` to HTTP.
 
 ## Swapping an external library
 
@@ -48,6 +52,7 @@ AuthModule.forRootAsync({
   passwordHasher: BcryptPasswordHasher, // replaces Argon2PasswordHasher (argon2)
   tokenHasher:    KmsTokenHasher,       // replaces CryptoTokenHasher (node:crypto)
   tokenExtractor: new CookieTokenExtractor('access_token'), // replaces BearerTokenExtractor
+  logger:         NestJsLogger,         // replaces ConsoleLogger
   // ... rest of options
 })
 ```
@@ -61,4 +66,5 @@ No other files change.
 3. Implement the strategy in `strategies/`.
 4. Wire the token and strategy in `core/auth.module.ts`.
 5. Add the use-case method(s) to `core/auth.service.ts`.
-6. Re-export from `src/index.ts`.
+6. Add any new `AuthErrorCode` values to `errors/auth-error.ts`.
+7. Re-export from `src/index.ts`.
