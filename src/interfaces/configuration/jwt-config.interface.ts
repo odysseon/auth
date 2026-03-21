@@ -70,6 +70,10 @@ export function isAsymmetric(cfg: JwtConfig): cfg is AsymmetricJwtConfig {
 
 /**
  * Validates `JwtConfig` at module initialisation.
+ *
+ * Throws a descriptive `Error` for every detectable misconfiguration so that
+ * bad config crashes the application at startup rather than silently producing
+ * insecure tokens at request time.
  */
 export function validateJwtConfig(cfg: JwtConfig): void {
   if (!cfg.accessToken?.expiresIn) {
@@ -92,5 +96,15 @@ export function validateJwtConfig(cfg: JwtConfig): void {
           'required for asymmetric config.',
       );
     }
+  }
+
+  if (
+    cfg.refreshToken?.tokenLength !== undefined &&
+    cfg.refreshToken.tokenLength < 16
+  ) {
+    throw new Error(
+      '[@odysseon/auth] jwt.refreshToken.tokenLength must be at least 16 bytes ' +
+        '(128 bits). Values below this threshold provide insufficient entropy.',
+    );
   }
 }
