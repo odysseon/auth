@@ -1,4 +1,4 @@
-import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, Profile, VerifyCallback } from 'passport-google-oauth20';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
@@ -26,6 +26,10 @@ import type {
  *
  * Note: email-verification semantics are out of scope for this module and
  * are left entirely to the consuming application.
+ *
+ * ### Error handling
+ * `validate()` calls `done(error)` on failure rather than throwing
+ * framework-specific exceptions. Passport's error path handles the response.
  */
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -59,7 +63,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       const email = profile.emails?.[0]?.value;
       if (!email) {
         return done(
-          new UnauthorizedException(
+          new Error(
             'Google did not return an email address. Ensure your Google ' +
               'account has a verified email and the email scope is granted.',
           ),
@@ -87,11 +91,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       }
 
       if (!user?.id) {
-        return done(
-          new UnauthorizedException(
-            'Failed to resolve user from Google profile',
-          ),
-        );
+        return done(new Error('Failed to resolve user from Google profile'));
       }
 
       const requestUser: RequestUser = { userId: user.id };
