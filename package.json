@@ -1,6 +1,6 @@
 {
   "name": "@odysseon/auth",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Identity-only authentication module for NestJS — hexagonal architecture, ORM-agnostic",
   "author": "Odysseon",
   "license": "MIT",
