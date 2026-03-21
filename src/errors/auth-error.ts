@@ -15,11 +15,19 @@ export const AuthErrorCode = {
   OAUTH_ACCOUNT_NO_PASSWORD: 'OAUTH_ACCOUNT_NO_PASSWORD',
   /** New password is identical to the current password. */
   PASSWORD_SAME_AS_OLD: 'PASSWORD_SAME_AS_OLD',
-  /** User record not found when a specific userId was required. */
+  /**
+   * User record not found when a specific `userId` was required.
+   * Thrown by: `changePassword`, `setPassword`, and `rotateRefreshToken`
+   * (when the user referenced by the refresh token no longer exists).
+   */
   USER_NOT_FOUND: 'USER_NOT_FOUND',
 
   // ── OAuth ─────────────────────────────────────────────────────────────────
-  /** `handleGoogleCallback` called but the user record no longer exists. */
+  /**
+   * `handleGoogleCallback` was called but the user record provisioned by
+   * `GoogleStrategy.validate()` could not be found immediately after.
+   * Indicates a race between user creation and the callback lookup.
+   */
   OAUTH_USER_NOT_FOUND: 'OAUTH_USER_NOT_FOUND',
 
   // ── Refresh tokens ────────────────────────────────────────────────────────

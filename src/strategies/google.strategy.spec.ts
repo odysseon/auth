@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { GoogleStrategy } from './google.strategy';
 import type { IGoogleUserRepository } from '../interfaces';
 import type { AuthUser } from '../interfaces/user-model/user.interface';
@@ -122,16 +123,16 @@ describe('GoogleStrategy', () => {
       expect(done).toHaveBeenCalledWith(null, { userId: 'user-3' });
     });
 
-    it('calls done with an Error when no email in profile', async () => {
+    it('calls done with UnauthorizedException when no email in profile', async () => {
       const { strategy } = buildStrategy();
       const done = jest.fn() as jest.MockedFunction<VerifyCallback>;
 
       await strategy.validate('at', 'rt', buildProfile({ emails: [] }), done);
 
-      expect(done).toHaveBeenCalledWith(expect.any(Error));
+      expect(done).toHaveBeenCalledWith(expect.any(UnauthorizedException));
     });
 
-    it('calls done with an Error when user id cannot be resolved', async () => {
+    it('calls done with UnauthorizedException when user id cannot be resolved', async () => {
       const { strategy } = buildStrategy({
         findByGoogleId: jest.fn().mockResolvedValue(null),
         findByEmail: jest.fn().mockResolvedValue(null),
@@ -141,7 +142,7 @@ describe('GoogleStrategy', () => {
 
       await strategy.validate('at', 'rt', buildProfile(), done);
 
-      expect(done).toHaveBeenCalledWith(expect.any(Error));
+      expect(done).toHaveBeenCalledWith(expect.any(UnauthorizedException));
     });
 
     it('calls done with the error when an unexpected exception is thrown', async () => {
