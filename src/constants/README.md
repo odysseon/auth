@@ -38,6 +38,7 @@ the whole config object, so they stay narrowly scoped.
 | `PORTS.PASSWORD_HASHER` | `IPasswordHasher` | `Argon2PasswordHasher` | `passwordHasher: YourClass` |
 | `PORTS.TOKEN_HASHER` | `ITokenHasher` | `CryptoTokenHasher` | `tokenHasher: YourClass` |
 | `PORTS.TOKEN_EXTRACTOR` | `ITokenExtractor` | `BearerTokenExtractor` | `tokenExtractor: YourClass` |
+| `PORTS.LOGGER` | `ILogger` | `ConsoleLogger` | `logger: YourClass` |
 
 ## Testing overrides
 
@@ -50,5 +51,9 @@ the whole config object, so they stay narrowly scoped.
 {
   provide: PORTS.TOKEN_EXTRACTOR,
   useValue: { extract: jest.fn().mockReturnValue('mock-token') },
+}
+{
+  provide: PORTS.LOGGER,
+  useValue: { log: jest.fn(), error: jest.fn() },
 }
 ```

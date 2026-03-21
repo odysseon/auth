@@ -57,6 +57,20 @@ never throw.
 Default adapter: `BearerTokenExtractor` (`Authorization: Bearer <token>`)
 Swap to: `CookieTokenExtractor`, `QueryParamTokenExtractor`, or a custom implementation
 
+### `ILogger`
+Abstracts informational logging inside `AuthService`.
+
+| Method | Signature |
+|---|---|
+| `log` | `(message: string) → void` |
+| `error` | `(message: string, context?: unknown) → void` |
+
+Default adapter: `ConsoleLogger` (zero deps — `console.log` / `console.error`)
+Swap to: NestJS `Logger`, Pino, Winston, or any sink
+
+`ConsoleLogger` has **no framework imports** — it is a plain class that works
+in any Node.js runtime without NestJS installed.
+
 ## Rule
 
 **Nothing in `ports/` may import from adapters or from any external library.**
@@ -72,6 +86,7 @@ AuthModule.forRootAsync({
   passwordHasher: MyPasswordHasher,  // replaces Argon2PasswordHasher
   tokenHasher:    MyTokenHasher,     // replaces CryptoTokenHasher
   tokenExtractor: MyTokenExtractor,  // replaces BearerTokenExtractor
+  logger:         MyLogger,          // replaces ConsoleLogger
 })
 ```
 

@@ -1,6 +1,6 @@
 # src/adapters/
 
-Default implementations of the four internal ports. Every adapter in this
+Default implementations of the five internal ports. Every adapter in this
 directory is **swappable** — pass a replacement class (or instance) to
 `AuthModule.forRootAsync()` and the rest of the module is completely unaffected.
 
@@ -81,6 +81,9 @@ export class KmsTokenHasher implements ITokenHasher {
 Reads the JWT from the `Authorization: Bearer <token>` header. This is
 `AuthModule`'s default — no configuration required for standard API setups.
 
+Handles array-valued headers (some proxies forward repeated headers as arrays)
+and guards against empty tokens (`"Bearer "` returns `null`).
+
 **To swap:** Use `CookieTokenExtractor`, `QueryParamTokenExtractor`, or
 implement `ITokenExtractor` and pass it as `tokenExtractor:`.
 
@@ -116,12 +119,37 @@ most HTTP servers and proxies.
 
 ---
 
+### `ConsoleLogger` → `ILogger`  *(default)*
+
+Writes informational messages to `console.log` and errors to `console.error`.
+
+**Zero external dependencies** — no `@nestjs/common`, no logging framework.
+Works in plain Node.js, NestJS, Fastify, Lambda, or any other runtime.
+
+**To swap:** Implement `ILogger` and pass `logger: YourClass`.
+
+```ts
+// nestjs-logger.adapter.ts
+import { Logger } from '@nestjs/common';
+
+@Injectable()
+export class NestJsLogger implements ILogger {
+  private readonly l = new Logger('AuthService');
+  log(message: string)                  { this.l.log(message); }
+  error(message: string, ctx?: unknown) { this.l.error(message, ctx); }
+}
+
+// AuthModule.forRootAsync({ logger: NestJsLogger, ... })
+```
+
+---
+
 ## Dependency direction
 
 ```
 interfaces/ports/  (contracts — no deps)
       ↑
-adapters/          (default implementations — depend on external libs)
+adapters/          (default implementations — depend on external libs or nothing)
       ↑
 core/              (AuthModule wires ports → adapters via DI tokens)
 ```
