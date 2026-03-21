@@ -19,16 +19,20 @@ allowed to do. Authorization is your application's concern.
   or `Bearer header` → a cookie by passing one class. Zero changes to core logic.
 - **Capability flags.** Enable only the auth methods you need.
 - **True refresh-token rotation.** One-time-use tokens, atomically consumed, SHA-256 hashed.
+- **Framework-agnostic core.** `AuthService` is a plain class — use it with NestJS,
+  plain Fastify, Express, Lambda, or any other runtime. The NestJS adapter layer
+  (strategies, guards, decorators, module) is the only part that requires NestJS.
 
 ## Architecture
 
 ```
 interfaces/ports/   ← contracts (zero deps — the inversion anchor)
       ↑
-  adapters/         ← default implementations of the four internal ports
+  adapters/         ← default implementations of the five internal ports
       ↑
     core/           ← AuthService + AuthModule (use-cases, wiring)
   strategies/       ← Passport strategies
+  filters/          ← AuthExceptionFilter (NestJS HTTP adapter)
     guards/         ← JwtAuthGuard, GoogleOAuthGuard
  decorators/        ← @CurrentUser(), @Public()
 ```
@@ -41,6 +45,55 @@ interfaces/ports/   ← contracts (zero deps — the inversion anchor)
 | Password hashing | `IPasswordHasher` | `Argon2PasswordHasher` (argon2id) | `passwordHasher:` |
 | Token hashing / generation | `ITokenHasher` | `CryptoTokenHasher` (node:crypto) | `tokenHasher:` |
 | JWT extraction from request | `ITokenExtractor` | `BearerTokenExtractor` (Authorization header) | `tokenExtractor:` |
+| Logging | `ILogger` | `ConsoleLogger` (console.log / console.error) | `logger:` |
+
+## Error handling
+
+`AuthService` throws `AuthError` with a typed `AuthErrorCode` — never HTTP-specific
+exceptions. This keeps the core framework-agnostic and gives consumers full control
+over how errors are surfaced.
+
+**NestJS users:** register `AuthExceptionFilter` to map error codes to HTTP responses:
+
+```ts
+// app.module.ts
+providers: [
+  { provide: APP_GUARD,  useClass: JwtAuthGuard },
+  { provide: APP_FILTER, useClass: AuthExceptionFilter },
+]
+```
+
+**Non-NestJS users:** catch `AuthError` and map `err.code` yourself:
+
+```ts
+import { AuthError, AuthErrorCode } from '@odysseon/auth';
+
+try {
+  await authService.loginWithCredentials(input);
+} catch (err) {
+  if (err instanceof AuthError) {
+    switch (err.code) {
+      case AuthErrorCode.INVALID_CREDENTIALS: return reply.status(401).send();
+      case AuthErrorCode.EMAIL_ALREADY_EXISTS: return reply.status(409).send();
+    }
+  }
+  throw err;
+}
+```
+
+### Error code → HTTP status map
+
+| `AuthErrorCode` | Default HTTP status | Thrown by |
+|---|---|---|
+| `INVALID_CREDENTIALS` | 401 | `loginWithCredentials`, `changePassword` (wrong current password) |
+| `EMAIL_ALREADY_EXISTS` | 409 | `register` |
+| `OAUTH_ACCOUNT_NO_PASSWORD` | 400 | `changePassword`, `setPassword` (OAuth-only account) |
+| `PASSWORD_SAME_AS_OLD` | 400 | `changePassword` |
+| `USER_NOT_FOUND` | 404 | `changePassword`, `setPassword`, `rotateRefreshToken` (deleted user) |
+| `OAUTH_USER_NOT_FOUND` | 401 | `handleGoogleCallback` (user vanished after OAuth) |
+| `REFRESH_TOKEN_INVALID` | 401 | `rotateRefreshToken` (bad/used token), `verifyAccessToken` |
+| `REFRESH_TOKEN_EXPIRED` | 401 | `rotateRefreshToken` |
+| `REFRESH_NOT_ENABLED` | 501 | `rotateRefreshToken` (misconfiguration) |
 
 ## Quick start
 
@@ -154,12 +207,13 @@ export class AuthController {
 }
 ```
 
-### 5. Apply guard globally (recommended)
+### 5. Apply guard and filter globally (recommended)
 
 ```ts
 // app.module.ts
 providers: [
-  { provide: APP_GUARD, useClass: JwtAuthGuard },
+  { provide: APP_GUARD,  useClass: JwtAuthGuard },
+  { provide: APP_FILTER, useClass: AuthExceptionFilter },
 ]
 // Then use @Public() on open endpoints instead of @UseGuards everywhere.
 ```
@@ -202,6 +256,26 @@ import * as cookieParser from 'cookie-parser';
 app.use(cookieParser());
 ```
 
+### Swapping the logger
+
+By default informational messages are written to `console.log`. To use NestJS
+structured logging:
+
+```ts
+import { Logger } from '@nestjs/common';
+import type { ILogger } from '@odysseon/auth';
+
+@Injectable()
+export class NestJsLogger implements ILogger {
+  private readonly l = new Logger('AuthService');
+  log(message: string)                     { this.l.log(message); }
+  error(message: string, ctx?: unknown)    { this.l.error(message, ctx); }
+}
+
+// In AuthModule.forRootAsync():
+logger: NestJsLogger
+```
+
 ## Testing
 
 Every external dependency is behind a port — mock the token, not the library:
@@ -214,6 +288,8 @@ const module = await Test.createTestingModule({ ... })
   .useValue({ init: jest.fn(), sign: jest.fn().mockResolvedValue('token'), verify: jest.fn() })
   .overrideProvider(PORTS.TOKEN_EXTRACTOR)
   .useValue({ extract: jest.fn().mockReturnValue('mock-token') })
+  .overrideProvider(PORTS.LOGGER)
+  .useValue({ log: jest.fn(), error: jest.fn() })
   .compile();
 ```
 
@@ -224,7 +300,11 @@ No real crypto runs in tests. Blazing fast, zero flakiness.
 | Export | Description |
 |---|---|
 | `AuthModule` | Root module — `forRootAsync()` |
+| `AuthModuleAsyncOptions` | NestJS wiring type for `forRootAsync()` |
 | `AuthService` | All use-case methods |
+| `AuthError` | Domain error class thrown by `AuthService` |
+| `AuthErrorCode` | Typed error code constants |
+| `AuthExceptionFilter` | NestJS filter — maps `AuthError` codes to HTTP responses |
 | `JwtAuthGuard` | Protect routes; respects `@Public()` |
 | `GoogleOAuthGuard` | Initiate / handle Google OAuth |
 | `@CurrentUser()` | Extract `RequestUser` from request |
@@ -235,10 +315,12 @@ No real crypto runs in tests. Blazing fast, zero flakiness.
 | `BearerTokenExtractor` | Default extractor — `Authorization: Bearer` header |
 | `CookieTokenExtractor` | Extractor — named HTTP cookie |
 | `QueryParamTokenExtractor` | Extractor — URL query parameter |
+| `ConsoleLogger` | Default logger adapter (console.log / console.error, zero deps) |
 | `IJwtSigner` | Port — implement to swap JWT library |
 | `IPasswordHasher` | Port — implement to swap password hasher |
 | `ITokenHasher` | Port — implement to swap token hasher |
 | `ITokenExtractor` | Port — implement to swap token extraction |
+| `ILogger` | Port — implement to swap logger |
 | `IUserRepository` | Port — implement in your infra layer |
 | `IRefreshTokenRepository` | Port — implement in your infra layer |
 | `PORTS`, `AUTH_CAPABILITIES` | DI tokens for testing overrides |

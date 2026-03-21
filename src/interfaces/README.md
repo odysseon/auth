@@ -15,6 +15,7 @@ The core layer depends on these; adapters implement them.
 | `IPasswordHasher` | `Argon2PasswordHasher` (argon2) | `passwordHasher:` in `forRootAsync()` |
 | `ITokenHasher` | `CryptoTokenHasher` (node:crypto) | `tokenHasher:` in `forRootAsync()` |
 | `ITokenExtractor` | `BearerTokenExtractor` (Authorization header) | `tokenExtractor:` in `forRootAsync()` |
+| `ILogger` | `ConsoleLogger` (console.log / console.error) | `logger:` in `forRootAsync()` |
 
 ### `configuration/`
 Config shapes passed to `AuthModule.forRootAsync()`.
@@ -23,7 +24,11 @@ Config shapes passed to `AuthModule.forRootAsync()`.
 |---|---|
 | `jwt-config.interface.ts` | `JwtConfig` — symmetric vs asymmetric, access + refresh TTLs |
 | `google-oauth-config.interface.ts` | `GoogleOAuthConfig` — clientID, secret, callbackURL |
-| `auth-module-config.interface.ts` | `AuthModuleConfig` + `AuthModuleAsyncOptions` |
+| `auth-module-config.interface.ts` | `AuthModuleConfig` — the pure domain config object |
+
+Note: `AuthModuleAsyncOptions` (the NestJS wiring type) lives in
+`core/auth.module.ts` alongside `forRootAsync()`, not here, because it
+imports NestJS types and belongs in the adapter layer.
 
 ### `user-model/`
 Contracts for user entities and their repository.
@@ -32,7 +37,7 @@ Contracts for user entities and their repository.
 |---|---|
 | `user.interface.ts` | `AuthUser`, `BaseUser`, `CredentialsUser`, `GoogleUser` |
 | `request-user.interface.ts` | `RequestUser` — what lands on `req.user` after JWT validation |
-| `authenticated-request.interface.ts` | Express `Request` extended with `user: RequestUser` |
+| `authenticated-request.interface.ts` | Minimal `{ user: RequestUser }` — framework-agnostic, no Express import |
 | `user-repository.interface.ts` | `IUserRepository` + `IGoogleUserRepository` — implement these |
 
 ### `refresh-token/`
