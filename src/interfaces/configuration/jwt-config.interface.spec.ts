@@ -104,4 +104,51 @@ describe('validateJwtConfig', () => {
       );
     });
   });
+
+  describe('refreshToken.tokenLength validation', () => {
+    it('does not throw when tokenLength is absent', () => {
+      expect(() =>
+        validateJwtConfig({
+          ...VALID_SYMMETRIC,
+          refreshToken: { expiresIn: '7d' },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw when tokenLength is exactly 16', () => {
+      expect(() =>
+        validateJwtConfig({
+          ...VALID_SYMMETRIC,
+          refreshToken: { expiresIn: '7d', tokenLength: 16 },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw when tokenLength is above 16', () => {
+      expect(() =>
+        validateJwtConfig({
+          ...VALID_SYMMETRIC,
+          refreshToken: { expiresIn: '7d', tokenLength: 64 },
+        }),
+      ).not.toThrow();
+    });
+
+    it('throws when tokenLength is below 16', () => {
+      expect(() =>
+        validateJwtConfig({
+          ...VALID_SYMMETRIC,
+          refreshToken: { expiresIn: '7d', tokenLength: 8 },
+        }),
+      ).toThrow('at least 16 bytes');
+    });
+
+    it('throws when tokenLength is 1', () => {
+      expect(() =>
+        validateJwtConfig({
+          ...VALID_SYMMETRIC,
+          refreshToken: { expiresIn: '7d', tokenLength: 1 },
+        }),
+      ).toThrow('at least 16 bytes');
+    });
+  });
 });

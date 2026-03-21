@@ -63,7 +63,8 @@ export interface IJwtSigner {
    * regardless of which adapter is in use.
    *
    * @throws Any error on invalid signature, expiry, or claim mismatch.
-   *         `AuthService` will wrap thrown errors in `UnauthorizedException`.
+   *         `AuthService` will wrap thrown errors in `AuthError` with code
+   *         `REFRESH_TOKEN_INVALID`.
    */
   verify(token: string): Promise<JwtPayload>;
 }
