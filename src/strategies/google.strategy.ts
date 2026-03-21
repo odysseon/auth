@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, Profile, VerifyCallback } from 'passport-google-oauth20';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
@@ -28,8 +28,13 @@ import type {
  * are left entirely to the consuming application.
  *
  * ### Error handling
- * `validate()` calls `done(error)` on failure rather than throwing
- * framework-specific exceptions. Passport's error path handles the response.
+ * Expected authentication failures (missing email, unresolvable user) call
+ * `done(new UnauthorizedException(...))`. Passport routes `HttpException`
+ * instances through the *fail* path (401), not the *error* path (500), so
+ * the client receives the correct status code.
+ * Truly unexpected exceptions (repository errors, network failures) fall
+ * through to the `catch` block and call `done(err)`, which Passport routes
+ * through the error path — resulting in a 500 and surfacing the original error.
  */
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -63,7 +68,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       const email = profile.emails?.[0]?.value;
       if (!email) {
         return done(
-          new Error(
+          new UnauthorizedException(
             'Google did not return an email address. Ensure your Google ' +
               'account has a verified email and the email scope is granted.',
           ),
@@ -91,7 +96,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       }
 
       if (!user?.id) {
-        return done(new Error('Failed to resolve user from Google profile'));
+        return done(
+          new UnauthorizedException(
+            'Failed to resolve user from Google profile',
+          ),
+        );
       }
 
       const requestUser: RequestUser = { userId: user.id };

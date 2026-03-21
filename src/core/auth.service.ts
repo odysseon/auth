@@ -223,7 +223,7 @@ export class AuthService {
     const user = await this.userRepo.findById(stored.userId);
     if (!user?.id) {
       throw new AuthError(
-        AuthErrorCode.OAUTH_USER_NOT_FOUND,
+        AuthErrorCode.USER_NOT_FOUND,
         'User no longer exists',
       );
     }
