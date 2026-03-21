@@ -1,15 +1,11 @@
 import { Test } from '@nestjs/testing';
-import {
-  UnauthorizedException,
-  ConflictException,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
 import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
 import type { IPasswordHasher } from '../interfaces/ports/password-hasher.port';
 import type { ITokenHasher } from '../interfaces/ports/token-hasher.port';
+import type { ILogger } from '../interfaces/ports/logger.port';
 import type { IUserRepository } from '../interfaces/user-model/user-repository.interface';
 import type { IRefreshTokenRepository } from '../interfaces/refresh-token/refresh-token.interface';
 import type { JwtConfig } from '../interfaces/configuration/jwt-config.interface';
@@ -52,6 +48,13 @@ function makeMockTokenHasher(): jest.Mocked<ITokenHasher> {
   return {
     hash: jest.fn().mockReturnValue('hashed-token'),
     generate: jest.fn().mockReturnValue('plain-token'),
+  };
+}
+
+function makeMockLogger(): jest.Mocked<ILogger> {
+  return {
+    log: jest.fn(),
+    error: jest.fn(),
   };
 }
 
@@ -105,6 +108,7 @@ async function buildService(
     ...overrides.passwordHasher,
   };
   const tokenHasher = { ...makeMockTokenHasher(), ...overrides.tokenHasher };
+  const logger = makeMockLogger();
   const userRepo = { ...makeMockUserRepo(), ...overrides.userRepo };
   const refreshTokenRepo =
     overrides.refreshTokenRepo === null
@@ -117,6 +121,7 @@ async function buildService(
     { provide: PORTS.JWT_SIGNER, useValue: jwtSigner },
     { provide: PORTS.PASSWORD_HASHER, useValue: passwordHasher },
     { provide: PORTS.TOKEN_HASHER, useValue: tokenHasher },
+    { provide: PORTS.LOGGER, useValue: logger },
     { provide: PORTS.USER_REPOSITORY, useValue: userRepo },
     ...(refreshTokenRepo !== null
       ? [
@@ -130,24 +135,36 @@ async function buildService(
 
   const moduleRef = await Test.createTestingModule({ providers }).compile();
   const service = moduleRef.get(AuthService);
-  await service.onModuleInit();
+  await service.init();
 
   return {
     service,
     jwtSigner,
     passwordHasher,
     tokenHasher,
+    logger,
     userRepo,
     refreshTokenRepo,
   };
 }
 
+// helper — asserts the thrown error is an AuthError with the expected code
+async function expectAuthError(
+  promise: Promise<unknown>,
+  code: AuthErrorCode,
+): Promise<void> {
+  await expect(promise).rejects.toThrow(AuthError);
+  await promise.catch((e: AuthError) => {
+    expect(e.code).toBe(code);
+  });
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('AuthService', () => {
-  // ── onModuleInit ──────────────────────────────────────────────────────────
+  // ── init ──────────────────────────────────────────────────────────────────
 
-  describe('onModuleInit', () => {
+  describe('init', () => {
     it('calls jwtSigner.init with the jwt config', async () => {
       const { jwtSigner } = await buildService();
       expect(jwtSigner.init).toHaveBeenCalledWith(JWT_CONFIG);
@@ -198,14 +215,15 @@ describe('AuthService', () => {
       expect(result.user.userId).toBe('user-1');
     });
 
-    it('throws ConflictException when email already exists', async () => {
+    it('throws AuthError EMAIL_ALREADY_EXISTS when email already exists', async () => {
       const { service } = await buildService({
         userRepo: { findByEmail: jest.fn().mockResolvedValue(MOCK_USER) },
       });
 
-      await expect(
+      await expectAuthError(
         service.register({ email: 'test@example.com', password: 'secret' }),
-      ).rejects.toThrow(ConflictException);
+        AuthErrorCode.EMAIL_ALREADY_EXISTS,
+      );
     });
 
     it('returns only accessToken when refresh tokens are not configured', async () => {
@@ -241,7 +259,6 @@ describe('AuthService', () => {
       const expiresAt: Date = callArgs[0].expiresAt;
       const ttlSeconds = (expiresAt.getTime() - before) / 1000;
 
-      // 2 weeks = 1_209_600 seconds. Allow a few seconds of test latency.
       expect(ttlSeconds).toBeGreaterThan(1_209_594);
       expect(expiresAt.getTime()).toBeLessThanOrEqual(
         after + 2 * 604800 * 1000 + 1000,
@@ -268,31 +285,33 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws UnauthorizedException for unknown email', async () => {
+    it('throws AuthError INVALID_CREDENTIALS for unknown email', async () => {
       const { service } = await buildService({
         userRepo: { findByEmail: jest.fn().mockResolvedValue(null) },
       });
 
-      await expect(
+      await expectAuthError(
         service.loginWithCredentials({ email: 'nobody@x.com', password: 'pw' }),
-      ).rejects.toThrow(UnauthorizedException);
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
 
-    it('throws UnauthorizedException for wrong password', async () => {
+    it('throws AuthError INVALID_CREDENTIALS for wrong password', async () => {
       const { service } = await buildService({
         userRepo: { findByEmail: jest.fn().mockResolvedValue(MOCK_USER) },
         passwordHasher: { verify: jest.fn().mockResolvedValue(false) },
       });
 
-      await expect(
+      await expectAuthError(
         service.loginWithCredentials({
           email: 'test@example.com',
           password: 'wrong',
         }),
-      ).rejects.toThrow(UnauthorizedException);
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
 
-    it('throws UnauthorizedException for OAuth-only accounts', async () => {
+    it('throws AuthError INVALID_CREDENTIALS for OAuth-only accounts', async () => {
       const { service } = await buildService({
         userRepo: {
           findByEmail: jest
@@ -301,12 +320,13 @@ describe('AuthService', () => {
         },
       });
 
-      await expect(
+      await expectAuthError(
         service.loginWithCredentials({
           email: 'test@example.com',
           password: 'pw',
         }),
-      ).rejects.toThrow(UnauthorizedException);
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
   });
 
@@ -324,14 +344,15 @@ describe('AuthService', () => {
       expect(result.user.userId).toBe('user-1');
     });
 
-    it('throws UnauthorizedException if user not found', async () => {
+    it('throws AuthError OAUTH_USER_NOT_FOUND if user not found', async () => {
       const { service } = await buildService({
         userRepo: { findById: jest.fn().mockResolvedValue(null) },
       });
 
-      await expect(
+      await expectAuthError(
         service.handleGoogleCallback({ userId: 'ghost' }),
-      ).rejects.toThrow(UnauthorizedException);
+        AuthErrorCode.OAUTH_USER_NOT_FOUND,
+      );
     });
   });
 
@@ -365,19 +386,20 @@ describe('AuthService', () => {
       expect(result.refreshToken).toBe('plain-token');
     });
 
-    it('throws UnauthorizedException when consumeByTokenHash returns null (unknown or already-used token)', async () => {
+    it('throws AuthError REFRESH_TOKEN_INVALID when consumeByTokenHash returns null', async () => {
       const { service } = await buildService({
         refreshTokenRepo: {
           consumeByTokenHash: jest.fn().mockResolvedValue(null),
         },
       });
 
-      await expect(service.rotateRefreshToken('bad-token')).rejects.toThrow(
-        UnauthorizedException,
+      await expectAuthError(
+        service.rotateRefreshToken('bad-token'),
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
 
-    it('throws UnauthorizedException for an expired token (no extra delete needed)', async () => {
+    it('throws AuthError REFRESH_TOKEN_EXPIRED for an expired token', async () => {
       const { service } = await buildService({
         refreshTokenRepo: {
           consumeByTokenHash: jest.fn().mockResolvedValue({
@@ -389,24 +411,27 @@ describe('AuthService', () => {
         },
       });
 
-      await expect(service.rotateRefreshToken('plain-token')).rejects.toThrow(
-        'expired',
+      await expectAuthError(
+        service.rotateRefreshToken('plain-token'),
+        AuthErrorCode.REFRESH_TOKEN_EXPIRED,
       );
     });
 
-    it('throws BadRequestException when refresh tokens are not configured', async () => {
+    it('throws AuthError REFRESH_NOT_ENABLED when refresh tokens are not configured', async () => {
       const { service } = await buildService({ refreshTokenRepo: null });
 
-      await expect(service.rotateRefreshToken('token')).rejects.toThrow(
-        BadRequestException,
+      await expectAuthError(
+        service.rotateRefreshToken('token'),
+        AuthErrorCode.REFRESH_NOT_ENABLED,
       );
     });
 
-    it('throws BadRequestException for empty token string', async () => {
+    it('throws AuthError REFRESH_TOKEN_INVALID for empty token string', async () => {
       const { service } = await buildService();
 
-      await expect(service.rotateRefreshToken('')).rejects.toThrow(
-        BadRequestException,
+      await expectAuthError(
+        service.rotateRefreshToken(''),
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
   });
@@ -440,39 +465,42 @@ describe('AuthService', () => {
       expect(result).toEqual({ userId: 'user-1' });
     });
 
-    it('throws UnauthorizedException when jwtSigner.verify throws', async () => {
+    it('throws AuthError REFRESH_TOKEN_INVALID when jwtSigner.verify throws', async () => {
       const { service } = await buildService({
         jwtSigner: {
           verify: jest.fn().mockRejectedValue(new Error('expired')),
         },
       });
 
-      await expect(service.verifyAccessToken('bad')).rejects.toThrow(
-        UnauthorizedException,
+      await expectAuthError(
+        service.verifyAccessToken('bad'),
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
 
-    it('throws UnauthorizedException when payload type is not "access"', async () => {
+    it('throws AuthError REFRESH_TOKEN_INVALID when payload type is not "access"', async () => {
       const { service } = await buildService({
         jwtSigner: {
           verify: jest.fn().mockResolvedValue({ sub: 'u', type: 'refresh' }),
         },
       });
 
-      await expect(service.verifyAccessToken('refresh-token')).rejects.toThrow(
-        UnauthorizedException,
+      await expectAuthError(
+        service.verifyAccessToken('refresh-token'),
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
 
-    it('throws UnauthorizedException when sub is missing', async () => {
+    it('throws AuthError REFRESH_TOKEN_INVALID when sub is missing', async () => {
       const { service } = await buildService({
         jwtSigner: {
           verify: jest.fn().mockResolvedValue({ sub: '', type: 'access' }),
         },
       });
 
-      await expect(service.verifyAccessToken('token')).rejects.toThrow(
-        UnauthorizedException,
+      await expectAuthError(
+        service.verifyAccessToken('token'),
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
   });
@@ -503,49 +531,52 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws NotFoundException when user does not exist', async () => {
+    it('throws AuthError USER_NOT_FOUND when user does not exist', async () => {
       const { service } = await buildService({
         userRepo: { findById: jest.fn().mockResolvedValue(null) },
       });
 
-      await expect(
+      await expectAuthError(
         service.changePassword({
           userId: 'ghost',
           currentPassword: 'old',
           newPassword: 'new',
         }),
-      ).rejects.toThrow(NotFoundException);
+        AuthErrorCode.USER_NOT_FOUND,
+      );
     });
 
-    it('throws UnauthorizedException when current password is wrong', async () => {
+    it('throws AuthError INVALID_CREDENTIALS when current password is wrong', async () => {
       const { service } = await buildService({
         passwordHasher: { verify: jest.fn().mockResolvedValue(false) },
       });
 
-      await expect(
+      await expectAuthError(
         service.changePassword({
           userId: 'user-1',
           currentPassword: 'wrong',
           newPassword: 'new',
         }),
-      ).rejects.toThrow(UnauthorizedException);
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
 
-    it('throws BadRequestException when new password equals current', async () => {
+    it('throws AuthError PASSWORD_SAME_AS_OLD when new password equals current', async () => {
       const { service } = await buildService({
         passwordHasher: { verify: jest.fn().mockResolvedValue(true) },
       });
 
-      await expect(
+      await expectAuthError(
         service.changePassword({
           userId: 'user-1',
           currentPassword: 'same',
           newPassword: 'same',
         }),
-      ).rejects.toThrow(BadRequestException);
+        AuthErrorCode.PASSWORD_SAME_AS_OLD,
+      );
     });
 
-    it('throws BadRequestException for OAuth-only accounts', async () => {
+    it('throws AuthError OAUTH_ACCOUNT_NO_PASSWORD for OAuth-only accounts', async () => {
       const { service } = await buildService({
         userRepo: {
           findById: jest
@@ -554,13 +585,14 @@ describe('AuthService', () => {
         },
       });
 
-      await expect(
+      await expectAuthError(
         service.changePassword({
           userId: 'user-1',
           currentPassword: 'old',
           newPassword: 'new',
         }),
-      ).rejects.toThrow(BadRequestException);
+        AuthErrorCode.OAUTH_ACCOUNT_NO_PASSWORD,
+      );
     });
   });
 
@@ -578,14 +610,15 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws NotFoundException when user does not exist', async () => {
+    it('throws AuthError USER_NOT_FOUND when user does not exist', async () => {
       const { service } = await buildService({
         userRepo: { findById: jest.fn().mockResolvedValue(null) },
       });
 
-      await expect(
+      await expectAuthError(
         service.setPassword({ userId: 'ghost', newPassword: 'new' }),
-      ).rejects.toThrow(NotFoundException);
+        AuthErrorCode.USER_NOT_FOUND,
+      );
     });
   });
 });
