@@ -28,4 +28,6 @@ export const PORTS = Object.freeze({
   TOKEN_HASHER: Symbol('TOKEN_HASHER'),
   /** ITokenExtractor — defaults to BearerTokenExtractor (Authorization header). */
   TOKEN_EXTRACTOR: Symbol('TOKEN_EXTRACTOR'),
+  /** ILogger — defaults to ConsoleLogger (console.log / console.error). */
+  LOGGER: Symbol('LOGGER'),
 });
