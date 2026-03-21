@@ -1,18 +1,33 @@
 /**
  * @file auth.controller.example.ts
  *
- * Reference-only controller showing how to wire every `AuthService` method
- * into a NestJS controller. Copy and adapt — do not import this file.
+ * Reference-only file showing how to wire `AuthService` in two contexts:
+ *
+ * 1. **NestJS controller** — the standard path when using `AuthModule`.
+ * 2. **Framework-agnostic handler** — plain Node.js usage without NestJS,
+ *    demonstrating that `AuthService` works in any runtime.
+ *
+ * Copy and adapt the section relevant to you. Do not import this file.
  *
  * This file is excluded from the production build (`tsconfig.build.json`)
  * and is never shipped in the `dist/` output.
- *
- * ### Assumptions
- * - `JwtAuthGuard` is registered globally via `APP_GUARD` (recommended).
- *   Routes that must be publicly accessible are decorated with `@Public()`.
- * - `RegisterDto` / `LoginDto` / `ChangePasswordDto` are your own validation
- *   DTOs (e.g. class-validator). They are not provided by this module.
  */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 1 — NestJS controller (Express or Fastify via @nestjs/platform-*)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Prerequisites in app.module.ts:
+//
+//   providers: [
+//     // Maps AuthError codes to HTTP responses automatically.
+//     // Works with both Express and Fastify — uses NestJS ArgumentsHost.
+//     { provide: APP_GUARD,  useClass: JwtAuthGuard },
+//     { provide: APP_FILTER, useClass: AuthExceptionFilter },
+//   ]
+//
+// Without AuthExceptionFilter, AuthError propagates as an unhandled exception.
+// You can also scope it per-controller with @UseFilters(AuthExceptionFilter).
 
 import {
   Controller,
@@ -52,7 +67,7 @@ interface ChangePasswordDto {
   newPassword: string;
 }
 
-// ── Controller ────────────────────────────────────────────────────────────
+// ── NestJS controller ─────────────────────────────────────────────────────
 
 @Controller('auth')
 export class AuthController {
@@ -60,10 +75,6 @@ export class AuthController {
 
   // ── Credentials ──────────────────────────────────────────────────────────
 
-  /**
-   * POST /auth/register
-   * Create a new user and return a token pair.
-   */
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -71,10 +82,6 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
-  /**
-   * POST /auth/login
-   * Verify email + password and return a token pair.
-   */
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -84,10 +91,6 @@ export class AuthController {
 
   // ── Google OAuth ──────────────────────────────────────────────────────────
 
-  /**
-   * GET /auth/google
-   * Redirects the browser to Google's OAuth consent screen.
-   */
   @Public()
   @Get('google')
   @UseGuards(GoogleOAuthGuard)
@@ -95,12 +98,6 @@ export class AuthController {
     // Passport handles the redirect — no body needed.
   }
 
-  /**
-   * GET /auth/google/callback
-   * Google redirects here after the user grants consent.
-   * Passport calls GoogleStrategy.validate(), which resolves req.user,
-   * then this handler issues a token pair.
-   */
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
@@ -110,11 +107,6 @@ export class AuthController {
 
   // ── Refresh tokens ────────────────────────────────────────────────────────
 
-  /**
-   * POST /auth/refresh
-   * Atomically consume the supplied refresh token and issue a fresh pair.
-   * The old token is invalidated immediately — replay is rejected.
-   */
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -122,11 +114,6 @@ export class AuthController {
     return this.authService.rotateRefreshToken(dto.refreshToken);
   }
 
-  /**
-   * POST /auth/logout
-   * Revoke every refresh token for the authenticated user (all devices).
-   * Access tokens remain valid until their `exp` claim — keep TTLs short.
-   */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@CurrentUser() user: RequestUser) {
@@ -135,11 +122,6 @@ export class AuthController {
 
   // ── Protected ─────────────────────────────────────────────────────────────
 
-  /**
-   * GET /auth/me
-   * Return the authenticated user's identity.
-   * Protected by the global JwtAuthGuard — no @UseGuards needed.
-   */
   @Get('me')
   me(@CurrentUser() user: RequestUser) {
     return user;
@@ -147,11 +129,6 @@ export class AuthController {
 
   // ── Password management ───────────────────────────────────────────────────
 
-  /**
-   * POST /auth/password/change
-   * Change the authenticated user's password.
-   * Requires the current password for verification.
-   */
   @Post('password/change')
   @HttpCode(HttpStatus.OK)
   changePassword(
@@ -165,3 +142,124 @@ export class AuthController {
     });
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 2 — Framework-agnostic usage (no NestJS, no Passport)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// AuthService is a plain class. Construct it directly with any framework.
+// AuthError carries typed codes — map them to whatever your framework expects.
+//
+// Example below uses Fastify directly, but the same pattern works for:
+//   plain Express, Hono, Elysia, Koa, queue workers, Lambda, CLI tools, etc.
+
+/*
+import Fastify from 'fastify';
+import { AuthService } from '@odysseon/auth';
+import { AuthError, AuthErrorCode } from '@odysseon/auth';
+import { JoseJwtSigner } from '@odysseon/auth';
+import { Argon2PasswordHasher } from '@odysseon/auth';
+import { CryptoTokenHasher } from '@odysseon/auth';
+import { ConsoleLogger } from '@odysseon/auth';
+
+// ── Wire AuthService without NestJS ───────────────────────────────────────
+
+const jwtConfig = {
+  type: 'symmetric' as const,
+  secret: process.env.JWT_SECRET!,
+  accessToken: { expiresIn: '15m', algorithm: 'HS256' },
+  refreshToken: { expiresIn: '7d' },
+};
+
+const authService = new AuthService(
+  jwtConfig,
+  new JoseJwtSigner(),
+  new Argon2PasswordHasher(),
+  new CryptoTokenHasher(),
+  new ConsoleLogger(),
+  new MyUserRepository(),        // your IUserRepository implementation
+  new MyRefreshTokenRepository(), // your IRefreshTokenRepository implementation
+);
+
+// Call init() once at startup — validates config and imports JWT keys.
+await authService.init();
+
+// ── Map AuthError codes to HTTP responses ─────────────────────────────────
+
+const AUTH_ERROR_STATUS: Record<string, number> = {
+  [AuthErrorCode.INVALID_CREDENTIALS]:       401,
+  [AuthErrorCode.EMAIL_ALREADY_EXISTS]:      409,
+  [AuthErrorCode.OAUTH_ACCOUNT_NO_PASSWORD]: 400,
+  [AuthErrorCode.PASSWORD_SAME_AS_OLD]:      400,
+  [AuthErrorCode.USER_NOT_FOUND]:            404,
+  [AuthErrorCode.OAUTH_USER_NOT_FOUND]:      401,
+  [AuthErrorCode.REFRESH_TOKEN_INVALID]:     401,
+  [AuthErrorCode.REFRESH_TOKEN_EXPIRED]:     401,
+  [AuthErrorCode.REFRESH_NOT_ENABLED]:       501,
+};
+
+function handleAuthError(err: unknown, reply: FastifyReply): boolean {
+  if (err instanceof AuthError) {
+    const status = AUTH_ERROR_STATUS[err.code] ?? 500;
+    reply.status(status).send({ error: err.code, message: err.message });
+    return true;
+  }
+  return false;
+}
+
+// ── Fastify routes ────────────────────────────────────────────────────────
+
+const fastify = Fastify();
+
+fastify.post('/auth/register', async (request, reply) => {
+  try {
+    const body = request.body as { email: string; password: string };
+    const result = await authService.register(body);
+    return reply.status(201).send(result);
+  } catch (err) {
+    if (!handleAuthError(err, reply)) throw err;
+  }
+});
+
+fastify.post('/auth/login', async (request, reply) => {
+  try {
+    const body = request.body as { email: string; password: string };
+    const result = await authService.loginWithCredentials(body);
+    return reply.send(result);
+  } catch (err) {
+    if (!handleAuthError(err, reply)) throw err;
+  }
+});
+
+fastify.post('/auth/refresh', async (request, reply) => {
+  try {
+    const body = request.body as { refreshToken: string };
+    const result = await authService.rotateRefreshToken(body.refreshToken);
+    return reply.send(result);
+  } catch (err) {
+    if (!handleAuthError(err, reply)) throw err;
+  }
+});
+
+// Protect routes manually — verify the access token in a preHandler hook.
+fastify.addHook('preHandler', async (request, reply) => {
+  // Skip public routes.
+  const publicPaths = ['/auth/register', '/auth/login', '/auth/refresh'];
+  if (publicPaths.includes(request.url)) return;
+
+  const token = request.headers.authorization?.slice(7); // strip "Bearer "
+  if (!token) return reply.status(401).send({ error: 'Missing token' });
+
+  try {
+    (request as any).user = await authService.verifyAccessToken(token);
+  } catch {
+    return reply.status(401).send({ error: 'Invalid or expired token' });
+  }
+});
+
+fastify.get('/auth/me', async (request) => {
+  return (request as any).user;
+});
+
+await fastify.listen({ port: 3000 });
+*/

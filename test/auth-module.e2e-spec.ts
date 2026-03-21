@@ -5,12 +5,13 @@
  * and verifies the full authentication lifecycle:
  *   register → login → refresh → logout
  *
- * No real database. No real argon2 (replaced with a fast bcrypt-free stub).
+ * No real database. No real argon2 (replaced with a fast plaintext stub).
  * No real HTTP server — requests go through the NestJS test client.
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, Injectable } from '@nestjs/common';
 import { AuthModule } from '../src/core/auth.module';
+import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 import type { IUserRepository } from '../src/interfaces/user-model/user-repository.interface';
 import type { IRefreshTokenRepository } from '../src/interfaces/refresh-token/refresh-token.interface';
 import type { IRefreshToken } from '../src/interfaces/refresh-token/refresh-token.interface';
@@ -20,7 +21,7 @@ import { AuthService } from '../src/core/auth.service';
 
 // ── In-memory stubs ─────────────────────────────────────────────────────────
 
-type TestUser = Required<AuthUser> & { id: string };
+type TestUser = Required<Omit<AuthUser, 'isEmailVerified'>> & { id: string };
 
 @Injectable()
 class InMemoryUserRepository implements IUserRepository<TestUser> {
@@ -66,20 +67,11 @@ class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
     this.store.set(id, record);
     return Promise.resolve(record);
   }
-  findByTokenHash(hash: string) {
-    return Promise.resolve(
-      [...this.store.values()].find((t) => t.token === hash) ?? null,
-    );
-  }
   consumeByTokenHash(hash: string) {
     const record = [...this.store.values()].find((t) => t.token === hash);
     if (!record) return Promise.resolve(null);
     this.store.delete(record.id);
     return Promise.resolve(record);
-  }
-  deleteById(id: string) {
-    this.store.delete(id);
-    return Promise.resolve();
   }
   deleteAllForUser(userId: string) {
     for (const [id, token] of this.store) {
@@ -98,6 +90,13 @@ class PlaintextPasswordHasher implements IPasswordHasher {
   async verify(password: string, hash: string) {
     return hash === `plain:${password}`;
   }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function expectAuthError(promise: Promise<unknown>, code: AuthErrorCode) {
+  await expect(promise).rejects.toBeInstanceOf(AuthError);
+  await expect(promise).rejects.toHaveProperty('code', code);
 }
 
 // ── Test suite ───────────────────────────────────────────────────────────────
@@ -148,18 +147,19 @@ describe('AuthModule (e2e)', () => {
       expect(typeof result.refreshToken).toBe('string');
     });
 
-    it('throws ConflictException for duplicate email', async () => {
+    it('throws AuthError EMAIL_ALREADY_EXISTS for duplicate email', async () => {
       await authService.register({
         email: 'duplicate@example.com',
         password: 'password123',
       });
 
-      await expect(
+      await expectAuthError(
         authService.register({
           email: 'duplicate@example.com',
           password: 'password456',
         }),
-      ).rejects.toThrow('Email already registered');
+        AuthErrorCode.EMAIL_ALREADY_EXISTS,
+      );
     });
   });
 
@@ -181,22 +181,24 @@ describe('AuthModule (e2e)', () => {
       expect(typeof result.accessToken).toBe('string');
     });
 
-    it('throws UnauthorizedException on wrong password', async () => {
-      await expect(
+    it('throws AuthError INVALID_CREDENTIALS on wrong password', async () => {
+      await expectAuthError(
         authService.loginWithCredentials({
           email: 'login@example.com',
           password: 'wrong-password',
         }),
-      ).rejects.toThrow('Invalid credentials');
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
 
-    it('throws UnauthorizedException for unknown email', async () => {
-      await expect(
+    it('throws AuthError INVALID_CREDENTIALS for unknown email', async () => {
+      await expectAuthError(
         authService.loginWithCredentials({
           email: 'nobody@example.com',
           password: 'password',
         }),
-      ).rejects.toThrow('Invalid credentials');
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
   });
 
@@ -206,15 +208,15 @@ describe('AuthModule (e2e)', () => {
         email: 'rotate@example.com',
         password: 'password',
       });
-
       const second = await authService.rotateRefreshToken(first.refreshToken!);
 
       expect(second.accessToken).toBeDefined();
       expect(second.refreshToken).toBeDefined();
-      // Old token must no longer be valid.
-      await expect(
+
+      await expectAuthError(
         authService.rotateRefreshToken(first.refreshToken!),
-      ).rejects.toThrow('invalid or has already been used');
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
+      );
     });
   });
 
@@ -227,9 +229,10 @@ describe('AuthModule (e2e)', () => {
 
       await authService.logout(user.userId);
 
-      await expect(
+      await expectAuthError(
         authService.rotateRefreshToken(refreshToken!),
-      ).rejects.toThrow('invalid or has already been used');
+        AuthErrorCode.REFRESH_TOKEN_INVALID,
+      );
     });
   });
 
@@ -253,19 +256,20 @@ describe('AuthModule (e2e)', () => {
       expect(result.user.userId).toBe(user.userId);
     });
 
-    it('rejects if the current password is wrong', async () => {
+    it('throws AuthError INVALID_CREDENTIALS when current password is wrong', async () => {
       const { user } = await authService.register({
         email: 'changepw-fail@example.com',
         password: 'password',
       });
 
-      await expect(
+      await expectAuthError(
         authService.changePassword({
           userId: user.userId,
           currentPassword: 'wrong',
           newPassword: 'new-password',
         }),
-      ).rejects.toThrow('Current password is incorrect');
+        AuthErrorCode.INVALID_CREDENTIALS,
+      );
     });
   });
 });
