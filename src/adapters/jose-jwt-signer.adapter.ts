@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+import {
+  SignJWT,
+  jwtVerify,
+  importPKCS8,
+  importSPKI,
+  errors as joseErrors,
+} from 'jose';
 import {
   type IJwtSigner,
   InvalidTokenError,
@@ -98,11 +104,16 @@ export class JoseJwtSigner implements IJwtSigner {
         type: payload['type'] as 'access',
       };
     } catch (err) {
-      // jose throws JWSInvalidError, JWTExpired, JWTClaimValidationFailed etc.
-      // for token-level failures. Wrap them as InvalidTokenError so
-      // AuthService.verifyAccessToken() can distinguish them from
-      // infrastructure errors (which should not map to 401).
-      throw new InvalidTokenError((err as Error).message);
+      // jose.errors.JOSEError is the base class for every token-level failure
+      // jose can throw: JWTExpired, JWSSignatureVerificationFailed,
+      // JWTClaimValidationFailed, JWTMalformed, JOSENotSupported, etc.
+      // Infrastructure failures (TypeError, RangeError, network errors from a
+      // KMS-backed key fetch, etc.) do NOT extend JOSEError and must propagate
+      // unchanged so AuthService can surface them as 500s, not 401s.
+      if (err instanceof joseErrors.JOSEError) {
+        throw new InvalidTokenError(err.message);
+      }
+      throw err;
     }
   }
 }

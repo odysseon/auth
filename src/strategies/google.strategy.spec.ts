@@ -9,10 +9,7 @@ import type { Profile, VerifyCallback } from 'passport-google-oauth20';
 // guard (null config) AND the happy path (valid config → super() called)
 // without a live Passport/Express setup.
 jest.mock('passport-google-oauth20', () => {
-  const MockStrategy = jest.fn().mockImplementation(function (
-    this: object,
-    _opts: unknown,
-  ) {});
+  const MockStrategy = jest.fn().mockImplementation(function (this: object) {});
   return { Strategy: MockStrategy };
 });
 
@@ -175,7 +172,6 @@ describe('GoogleStrategy', () => {
       // Simulates the module being misconfigured: 'google' listed in
       // enabledCapabilities but no google config supplied.
       expect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         new GoogleStrategy(null as any, {} as any);
       }).toThrow('GoogleStrategy instantiated but no Google config');
     });
