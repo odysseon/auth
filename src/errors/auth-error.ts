@@ -30,6 +30,16 @@ export const AuthErrorCode = {
    */
   OAUTH_USER_NOT_FOUND: 'OAUTH_USER_NOT_FOUND',
 
+  // ── Access tokens ─────────────────────────────────────────────────────────
+  /**
+   * `verifyAccessToken` was called with a token that is invalid, expired,
+   * malformed, or has the wrong `type` claim.
+   *
+   * Distinct from `REFRESH_TOKEN_INVALID` so consumers can branch on
+   * access-token failures without catching refresh-token errors.
+   */
+  ACCESS_TOKEN_INVALID: 'ACCESS_TOKEN_INVALID',
+
   // ── Refresh tokens ────────────────────────────────────────────────────────
   /** Token hash not found, or already consumed by a concurrent request. */
   REFRESH_TOKEN_INVALID: 'REFRESH_TOKEN_INVALID',
@@ -59,8 +69,9 @@ export type AuthErrorCode = (typeof AuthErrorCode)[keyof typeof AuthErrorCode];
  * } catch (err) {
  *   if (err instanceof AuthError) {
  *     switch (err.code) {
- *       case AuthErrorCode.INVALID_CREDENTIALS: return reply.status(401).send();
- *       case AuthErrorCode.USER_NOT_FOUND:      return reply.status(404).send();
+ *       case AuthErrorCode.INVALID_CREDENTIALS:  return reply.status(401).send();
+ *       case AuthErrorCode.ACCESS_TOKEN_INVALID:  return reply.status(401).send();
+ *       case AuthErrorCode.USER_NOT_FOUND:        return reply.status(404).send();
  *     }
  *   }
  *   throw err; // unexpected — re-throw

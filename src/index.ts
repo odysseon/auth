@@ -8,7 +8,6 @@ export { AuthService } from './core/auth.service';
 
 // ── Error types ───────────────────────────────────────────────────────────
 export { AuthError, AuthErrorCode } from './errors/auth-error';
-export type { AuthErrorCode as AuthErrorCodeType } from './errors/auth-error';
 
 // ── NestJS HTTP adapter ───────────────────────────────────────────────────
 export { AuthExceptionFilter } from './filters/auth-exception.filter';
@@ -30,8 +29,54 @@ export { CookieTokenExtractor } from './adapters/cookie-token-extractor.adapter'
 export { QueryParamTokenExtractor } from './adapters/query-param-token-extractor.adapter';
 export { ConsoleLogger } from './adapters/console-logger.adapter';
 
-// ── Full interface surface ─────────────────────────────────────────────────
-export * from './interfaces';
+// ── Port interfaces ────────────────────────────────────────────────────────
+// Implement these in your application to provide repositories and swap adapters.
+export type { IJwtSigner } from './interfaces/ports/jwt-signer.port';
+export { InvalidTokenError } from './interfaces/ports/jwt-signer.port';
+export type { IPasswordHasher } from './interfaces/ports/password-hasher.port';
+export type { ITokenHasher } from './interfaces/ports/token-hasher.port';
+export type { ITokenExtractor } from './interfaces/ports/token-extractor.port';
+export type { ILogger } from './interfaces/ports/logger.port';
+export type {
+  IUserRepository,
+  IGoogleUserRepository,
+} from './interfaces/user-model/user-repository.interface';
+export type {
+  IRefreshToken,
+  IRefreshTokenRepository,
+} from './interfaces/refresh-token/refresh-token.interface';
 
-// ── DI tokens ─────────────────────────────────────────────────────────────
-export { AUTH_CAPABILITIES, PORTS, AUTH_CONFIG } from './constants';
+// ── Domain types ──────────────────────────────────────────────────────────
+// Config, response shapes, operation inputs, and user model types that
+// consumers reference in controllers, DTOs, and repository implementations.
+export type {
+  JwtConfig,
+  RefreshTokenConfig,
+} from './interfaces/configuration/jwt-config.interface';
+export { parseDurationToSeconds } from './interfaces/configuration/jwt-config.interface';
+export type { GoogleOAuthConfig } from './interfaces/configuration/google-oauth-config.interface';
+export type { AuthModuleConfig } from './interfaces/configuration/auth-module-config.interface';
+export type {
+  AuthUser,
+  BaseUser,
+  CredentialsUser,
+  GoogleUser,
+} from './interfaces/user-model/user.interface';
+export type { RequestUser } from './interfaces/user-model/request-user.interface';
+export type { AuthenticatedRequest } from './interfaces/user-model/authenticated-request.interface';
+export type {
+  AuthResponse,
+  TokenPair,
+} from './interfaces/authentication/auth-response.interface';
+export type { JwtPayload } from './interfaces/authentication/jwt-payload.interface';
+export type {
+  LoginInput,
+  RegistrationInput,
+  PasswordChangeInput,
+  PasswordSetInput,
+} from './interfaces/operation-contracts/index';
+
+// ── DI tokens — for test overrides only ───────────────────────────────────
+// Use these with overrideProvider() in unit tests.
+// AUTH_CONFIG and AUTH_CAPABILITIES are internal module wiring — not exported.
+export { PORTS } from './constants';

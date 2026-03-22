@@ -9,7 +9,6 @@ export const AUTH_CONFIG = Symbol('AUTH_CONFIG');
 /** Capability-specific config slices injected into sub-modules. */
 export const AUTH_CAPABILITIES = Object.freeze({
   JWT: Symbol('JWT_CONFIG'),
-  CREDENTIALS: Symbol('CREDENTIALS_CONFIG'),
   GOOGLE: Symbol('GOOGLE_CONFIG'),
 });
 
