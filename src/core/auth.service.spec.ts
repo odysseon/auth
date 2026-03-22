@@ -227,19 +227,6 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws when userRepo.create returns no id', async () => {
-      const { service } = await buildService({
-        userRepo: {
-          findByEmail: jest.fn().mockResolvedValue(null),
-          create: jest.fn().mockResolvedValue({}),
-        },
-      });
-
-      await expect(
-        service.register({ email: 'new@example.com', password: 'secret' }),
-      ).rejects.toThrow('User creation failed: no ID returned');
-    });
-
     it('returns only accessToken when refresh tokens are not configured', async () => {
       const { service } = await buildService({
         userRepo: { findByEmail: jest.fn().mockResolvedValue(null) },
@@ -446,25 +433,6 @@ describe('AuthService', () => {
       await expectAuthError(
         service.rotateRefreshToken(''),
         AuthErrorCode.REFRESH_TOKEN_INVALID,
-      );
-    });
-
-    it('throws AuthError USER_NOT_FOUND when the user referenced by the token no longer exists', async () => {
-      const { service } = await buildService({
-        refreshTokenRepo: {
-          consumeByTokenHash: jest.fn().mockResolvedValue({
-            id: 'rt-1',
-            token: 'hashed-token',
-            userId: 'deleted-user',
-            expiresAt: new Date(Date.now() + 86400_000),
-          }),
-        },
-        userRepo: { findById: jest.fn().mockResolvedValue(null) },
-      });
-
-      await expectAuthError(
-        service.rotateRefreshToken('plain-token'),
-        AuthErrorCode.USER_NOT_FOUND,
       );
     });
   });

@@ -17,13 +17,35 @@ Wraps the **jose** library for JWT signing and verification.
 
 **To swap:** Implement `IJwtSigner` and pass `jwtSigner: YourClass`.
 
+The `verify()` method **must** throw `InvalidTokenError` (exported from `@odysseon/auth`)
+for token-level failures (bad signature, expiry, malformed). Infrastructure errors must
+propagate unchanged so `AuthService` can surface them as 500s rather than 401s.
+
 ```ts
 // jsonwebtoken-signer.adapter.ts
+import * as jwt from 'jsonwebtoken';
+import { InvalidTokenError } from '@odysseon/auth';
+
 @Injectable()
 export class JsonwebtokenSigner implements IJwtSigner {
-  async init(config: JwtConfig) { /* import key */ }
-  async sign(payload, expiresIn) { return jwt.sign(payload, this.key, { expiresIn }); }
-  async verify(token) { return jwt.verify(token, this.key) as JwtPayload; }
+  private secret!: string;
+
+  async init(config: JwtConfig) {
+    this.secret = (config as SymmetricJwtConfig).secret as string;
+  }
+
+  async sign(payload: JwtPayload, expiresIn: string | number) {
+    return jwt.sign(payload, this.secret, { expiresIn });
+  }
+
+  async verify(token: string): Promise<JwtPayload> {
+    try {
+      return jwt.verify(token, this.secret) as JwtPayload;
+    } catch (err) {
+      // JsonWebTokenError, TokenExpiredError, NotBeforeError — all token-level
+      throw new InvalidTokenError((err as Error).message);
+    }
+  }
 }
 
 // AuthModule.forRootAsync({ jwtSigner: JsonwebtokenSigner, ... })

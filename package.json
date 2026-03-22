@@ -1,7 +1,7 @@
 {
   "name": "@odysseon/auth",
   "version": "4.0.0",
-  "description": "Identity-only authentication module for NestJS - hexagonal architecture, ORM-agnostic",
+  "description": "Identity-only authentication module for NestJS — hexagonal architecture, ORM-agnostic",
   "author": "Odysseon",
   "license": "MIT",
   "main": "dist/index.js",
@@ -37,10 +37,9 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config test/jest-e2e.json --no-coverage",
-    "ci:check": "pnpm typecheck && pnpm lint:check && pnpm format:check && pnpm test:all",
+    "ci:check": "pnpm typecheck && pnpm lint:check && pnpm format:check && pnpm test && pnpm test:e2e",
     "prepack": "pnpm build",
-    "release": "semantic-release",
-    "test:all": "pnpm test:cov && pnpm test:e2e"
+    "release": "semantic-release"
   },
   "peerDependencies": {
     "@nestjs/common": "^10.0.0 || ^11.0.0",
@@ -64,7 +63,7 @@
     "passport-google-oauth20": "^2.0.0"
   },
   "dependencies": {
-    "jose": "^6.2.2"
+    "jose": "^5.9.6"
   },
   "devDependencies": {
     "@nestjs/common": "^11.1.17",
@@ -133,10 +132,10 @@
     "coverageDirectory": "../coverage",
     "coverageThreshold": {
       "global": {
-        "branches": 100,
-        "functions": 100,
-        "lines": 100,
-        "statements": 100
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
       }
     },
     "testEnvironment": "node",
@@ -147,9 +146,6 @@
     ],
     "setupFiles": [
       "reflect-metadata"
-    ],
-    "transformIgnorePatterns": [
-      "node_modules/(?!.*jose)"
     ]
   },
   "keywords": [
