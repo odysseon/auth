@@ -19,8 +19,12 @@ import type { JwtConfig } from '../interfaces/configuration/jwt-config.interface
 
 const mockSign = jest.fn().mockResolvedValue('signed.jwt.token');
 const mockJwtVerify = jest.fn();
-const mockImportPKCS8 = jest.fn().mockResolvedValue({ type: 'private' } as CryptoKey);
-const mockImportSPKI = jest.fn().mockResolvedValue({ type: 'public' } as CryptoKey);
+const mockImportPKCS8 = jest
+  .fn()
+  .mockResolvedValue({ type: 'private' } as CryptoKey);
+const mockImportSPKI = jest
+  .fn()
+  .mockResolvedValue({ type: 'public' } as CryptoKey);
 
 // SignJWT builder chain mock
 const mockBuilderChain = {
@@ -33,11 +37,21 @@ const mockBuilderChain = {
 };
 const MockSignJWT = jest.fn().mockImplementation(() => mockBuilderChain);
 
+// JOSEError is the base class for all token-level failures in jose.
+// Infrastructure errors (TypeError, etc.) do NOT extend it.
+class MockJOSEError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JOSEError';
+  }
+}
+
 jest.mock('jose', () => ({
   SignJWT: MockSignJWT,
   jwtVerify: mockJwtVerify,
   importPKCS8: mockImportPKCS8,
   importSPKI: mockImportSPKI,
+  errors: { JOSEError: MockJOSEError },
 }));
 
 // Import AFTER the mock is registered
@@ -155,10 +169,7 @@ describe('JoseJwtSigner', () => {
 
     it('defaults to ES256 when algorithm is absent', async () => {
       await signer.init(ASYMMETRIC_NO_ALG);
-      expect(mockImportPKCS8).toHaveBeenCalledWith(
-        expect.any(String),
-        'ES256',
-      );
+      expect(mockImportPKCS8).toHaveBeenCalledWith(expect.any(String), 'ES256');
     });
   });
 
@@ -248,19 +259,35 @@ describe('JoseJwtSigner', () => {
       );
     });
 
-    it('wraps jose errors in InvalidTokenError', async () => {
-      mockJwtVerify.mockRejectedValue(new Error('JWTExpired: token expired'));
+    it('wraps jose token errors (JOSEError subclasses) in InvalidTokenError', async () => {
+      mockJwtVerify.mockRejectedValue(
+        new MockJOSEError('JWTExpired: token expired'),
+      );
 
       await expect(signer.verify('expired.token')).rejects.toThrow(
         InvalidTokenError,
       );
     });
 
-    it('InvalidTokenError message comes from the original jose error', async () => {
-      mockJwtVerify.mockRejectedValue(new Error('signature verification failed'));
+    it('InvalidTokenError carries the original jose error message', async () => {
+      mockJwtVerify.mockRejectedValue(
+        new MockJOSEError('signature verification failed'),
+      );
 
       await expect(signer.verify('bad.token')).rejects.toThrow(
         'signature verification failed',
+      );
+    });
+
+    it('re-throws non-JOSEError errors unchanged (infrastructure failures)', async () => {
+      const infraError = new TypeError('Cannot read properties of undefined');
+      mockJwtVerify.mockRejectedValue(infraError);
+
+      // Must NOT be wrapped in InvalidTokenError — must propagate as-is
+      // so AuthService surfaces it as 500, not 401.
+      await expect(signer.verify('token')).rejects.toThrow(infraError);
+      await expect(signer.verify('token')).rejects.not.toThrow(
+        InvalidTokenError,
       );
     });
   });
