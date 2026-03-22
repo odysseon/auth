@@ -32,6 +32,7 @@ export class AuthExceptionFilter implements ExceptionFilter {
     [AuthErrorCode.PASSWORD_SAME_AS_OLD]: HttpStatus.BAD_REQUEST,
     [AuthErrorCode.USER_NOT_FOUND]: HttpStatus.NOT_FOUND,
     [AuthErrorCode.OAUTH_USER_NOT_FOUND]: HttpStatus.UNAUTHORIZED,
+    [AuthErrorCode.ACCESS_TOKEN_INVALID]: HttpStatus.UNAUTHORIZED,
     [AuthErrorCode.REFRESH_TOKEN_INVALID]: HttpStatus.UNAUTHORIZED,
     [AuthErrorCode.REFRESH_TOKEN_EXPIRED]: HttpStatus.UNAUTHORIZED,
     [AuthErrorCode.REFRESH_NOT_ENABLED]: HttpStatus.NOT_IMPLEMENTED,

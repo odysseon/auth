@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
-import type { KeyLike } from 'jose';
-import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
+import {
+  type IJwtSigner,
+  InvalidTokenError,
+} from '../interfaces/ports/jwt-signer.port';
 import type { JwtConfig, JwtPayload } from '../interfaces';
 import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
 
@@ -35,9 +37,9 @@ import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
  */
 @Injectable()
 export class JoseJwtSigner implements IJwtSigner {
-  // jose's KeyLike covers both CryptoKey (asymmetric) and Uint8Array (symmetric).
-  private signingKey!: KeyLike | Uint8Array;
-  private verifyingKey!: KeyLike | Uint8Array;
+  // In jose v5+, asymmetric keys are CryptoKey and symmetric keys are Uint8Array.
+  private signingKey!: CryptoKey | Uint8Array;
+  private verifyingKey!: CryptoKey | Uint8Array;
   private algorithm!: string;
   private issuer?: string;
   private audience?: string | string[];
@@ -56,7 +58,7 @@ export class JoseJwtSigner implements IJwtSigner {
       this.signingKey = key;
       this.verifyingKey = key;
     } else {
-      // importPKCS8/importSPKI return Promise<KeyLike> — store as KeyLike.
+      // importPKCS8/importSPKI return Promise<CryptoKey> in jose v5+.
       this.signingKey = await importPKCS8(
         config.privateKey.toString(),
         this.algorithm,
@@ -83,16 +85,24 @@ export class JoseJwtSigner implements IJwtSigner {
   }
 
   async verify(token: string): Promise<JwtPayload> {
-    // jwtVerify accepts KeyLike | Uint8Array directly — no cast needed.
-    const { payload } = await jwtVerify(token, this.verifyingKey, {
-      algorithms: [this.algorithm],
-      ...(this.issuer ? { issuer: this.issuer } : {}),
-      ...(this.audience ? { audience: this.audience } : {}),
-    });
+    try {
+      // jwtVerify accepts CryptoKey | Uint8Array directly.
+      const { payload } = await jwtVerify(token, this.verifyingKey, {
+        algorithms: [this.algorithm],
+        ...(this.issuer ? { issuer: this.issuer } : {}),
+        ...(this.audience ? { audience: this.audience } : {}),
+      });
 
-    return {
-      sub: payload.sub as string,
-      type: payload['type'] as 'access',
-    };
+      return {
+        sub: payload.sub as string,
+        type: payload['type'] as 'access',
+      };
+    } catch (err) {
+      // jose throws JWSInvalidError, JWTExpired, JWTClaimValidationFailed etc.
+      // for token-level failures. Wrap them as InvalidTokenError so
+      // AuthService.verifyAccessToken() can distinguish them from
+      // infrastructure errors (which should not map to 401).
+      throw new InvalidTokenError((err as Error).message);
+    }
   }
 }

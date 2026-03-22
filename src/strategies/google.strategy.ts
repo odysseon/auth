@@ -8,6 +8,10 @@ import type {
   AuthUser,
   RequestUser,
 } from '../interfaces';
+import type {
+  GoogleUserCreateInput,
+  GoogleUserLinkInput,
+} from '../core/auth.service';
 
 /**
  * Passport strategy for Google OAuth 2.0.
@@ -83,15 +87,15 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         //    up via credentials earlier) — link rather than duplicate.
         user = await this.userRepo.findByEmail(email);
         if (user && user.id) {
-          user = await this.userRepo.update(user.id, {
-            googleId: profile.id,
-          } as Partial<AuthUser>);
+          const linkInput: GoogleUserLinkInput = { googleId: profile.id };
+          user = await this.userRepo.update(user.id, linkInput);
         } else {
           // 3. Brand new user — provision an account.
-          user = await this.userRepo.create({
+          const createInput: GoogleUserCreateInput = {
             email,
             googleId: profile.id,
-          } as Partial<AuthUser>);
+          };
+          user = await this.userRepo.create(createInput);
         }
       }
 

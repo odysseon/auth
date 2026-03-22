@@ -1,7 +1,7 @@
 {
   "name": "@odysseon/auth",
-  "version": "3.0.0",
-  "description": "Identity-only authentication module for NestJS — hexagonal architecture, ORM-agnostic",
+  "version": "4.0.0",
+  "description": "Identity-only authentication module for NestJS - hexagonal architecture, ORM-agnostic",
   "author": "Odysseon",
   "license": "MIT",
   "main": "dist/index.js",
@@ -63,7 +63,7 @@
     "passport-google-oauth20": "^2.0.0"
   },
   "dependencies": {
-    "jose": "^5.9.6"
+    "jose": "^6.2.2"
   },
   "devDependencies": {
     "@nestjs/common": "^11.1.17",
