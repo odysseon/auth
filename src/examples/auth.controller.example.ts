@@ -193,6 +193,7 @@ const AUTH_ERROR_STATUS: Record<string, number> = {
   [AuthErrorCode.PASSWORD_SAME_AS_OLD]:      400,
   [AuthErrorCode.USER_NOT_FOUND]:            404,
   [AuthErrorCode.OAUTH_USER_NOT_FOUND]:      401,
+  [AuthErrorCode.ACCESS_TOKEN_INVALID]:      401,
   [AuthErrorCode.REFRESH_TOKEN_INVALID]:     401,
   [AuthErrorCode.REFRESH_TOKEN_EXPIRED]:     401,
   [AuthErrorCode.REFRESH_NOT_ENABLED]:       501,
