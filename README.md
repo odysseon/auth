@@ -91,7 +91,8 @@ try {
 | `PASSWORD_SAME_AS_OLD` | 400 | `changePassword` |
 | `USER_NOT_FOUND` | 404 | `changePassword`, `setPassword`, `rotateRefreshToken` (deleted user) |
 | `OAUTH_USER_NOT_FOUND` | 401 | `handleGoogleCallback` (user vanished after OAuth) |
-| `REFRESH_TOKEN_INVALID` | 401 | `rotateRefreshToken` (bad/used token), `verifyAccessToken` |
+| `ACCESS_TOKEN_INVALID` | 401 | `verifyAccessToken` (invalid, expired, malformed, or wrong token type) |
+| `REFRESH_TOKEN_INVALID` | 401 | `rotateRefreshToken` (bad or already-used token) |
 | `REFRESH_TOKEN_EXPIRED` | 401 | `rotateRefreshToken` |
 | `REFRESH_NOT_ENABLED` | 501 | `rotateRefreshToken` (misconfiguration) |
 
@@ -407,7 +408,7 @@ Only `AuthService` and the default adapter classes are needed outside NestJS. `A
 | `ILogger` | Port — implement to swap logger |
 | `IUserRepository` | Port — implement in your infra layer |
 | `IRefreshTokenRepository` | Port — implement in your infra layer |
-| `PORTS`, `AUTH_CAPABILITIES` | DI tokens for testing overrides |
+| `PORTS` | DI tokens for testing overrides (`AUTH_CAPABILITIES` is internal — not exported) |
 | `parseDurationToSeconds` | Utility — converts `'15m'`/`'7d'` duration strings to seconds |
 | `JwtConfig`, `RefreshTokenConfig` | Config types for JWT setup |
 | `GoogleOAuthConfig` | Config type for Google OAuth setup |
