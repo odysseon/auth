@@ -52,6 +52,15 @@ export interface IRefreshTokenRepository<
    * Returns the deleted record on success, or `null` when:
    * - no record matches the hash (token unknown), or
    * - the record was already consumed by a concurrent request.
+   *
+   * **Implementation contract:** return `null` for **any** record that
+   * should not grant access, not just records that are literally absent.
+   * Specifically:
+   * - Soft-deleted records must return `null` — do not return logically
+   *   deleted rows that happen to still exist in the table.
+   * - Filtering by expiry inside the query avoids unnecessary writes and is
+   *   strongly recommended:
+   *   `DELETE … WHERE token = $1 AND expires_at > now() RETURNING *`
    */
   consumeByTokenHash(tokenHash: string): Promise<RT | null>;
 

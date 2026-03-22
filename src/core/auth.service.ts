@@ -1,6 +1,9 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
-import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
+import {
+  type IJwtSigner,
+  InvalidTokenError,
+} from '../interfaces/ports/jwt-signer.port';
 import type { IPasswordHasher } from '../interfaces/ports/password-hasher.port';
 import type { ITokenHasher } from '../interfaces/ports/token-hasher.port';
 import type { ILogger } from '../interfaces/ports/logger.port';
@@ -11,31 +14,26 @@ import type {
   IUserRepository,
   IRefreshTokenRepository,
   IRefreshToken,
-  AuthUser,
   LoginInput,
   RegistrationInput,
   PasswordChangeInput,
   PasswordSetInput,
 } from '../interfaces';
+import type { AuthUser } from '../interfaces/user-model/user.interface';
+import { parseDurationToSeconds } from '../interfaces/configuration/jwt-config.interface';
 import { validateJwtConfig } from '../interfaces/configuration/jwt-config.interface';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 
-function parseDurationToSeconds(value: string | number): number {
-  if (typeof value === 'number') return value;
-  const m = value.match(/^(\d+)([smhdw])$/);
-  // Groups 1 and 2 are guaranteed present when the regex matches.
-  if (!m || !m[1] || !m[2])
-    throw new Error(`[@odysseon/auth] Invalid duration format: "${value}"`);
-  const n = parseInt(m[1], 10);
-  const multipliers: Record<string, number> = {
-    s: 1,
-    m: 60,
-    h: 3600,
-    d: 86400,
-    w: 604800,
-  };
-  return n * (multipliers[m[2]] ?? /* istanbul ignore next */ 1);
-}
+// ── Internal input types ───────────────────────────────────────────────────
+// These replace the `as Partial<AuthUser>` casts that were suppressing the
+// type system at repository boundaries. Each type represents exactly what
+// AuthService passes to the repository — no more, no less.
+
+type UserCreateInput = Pick<AuthUser, 'email'> &
+  Partial<Pick<AuthUser, 'password'>>;
+type GoogleUserCreateInput = Pick<AuthUser, 'email' | 'googleId'>;
+type GoogleUserLinkInput = Pick<AuthUser, 'googleId'>;
+type PasswordUpdateInput = Pick<AuthUser, 'password'>;
 
 /**
  * The single use-case service for all authentication operations.
@@ -52,14 +50,14 @@ function parseDurationToSeconds(value: string | number): number {
  * - Queue workers, Lambda functions, CLI tools, gRPC services
  *
  * ### Ports injected
- * | Token                       | Port               | Default adapter        |
- * |-----------------------------|--------------------|------------------------|
- * | `PORTS.JWT_SIGNER`          | `IJwtSigner`       | `JoseJwtSigner`        |
- * | `PORTS.PASSWORD_HASHER`     | `IPasswordHasher`  | `Argon2PasswordHasher` |
- * | `PORTS.TOKEN_HASHER`        | `ITokenHasher`     | `CryptoTokenHasher`    |
- * | `PORTS.LOGGER`              | `ILogger`          | `ConsoleLogger`        |
- * | `PORTS.USER_REPOSITORY`     | `IUserRepository`  | consumer-supplied      |
- * | `PORTS.REFRESH_TOKEN_REPOSITORY` | `IRefreshTokenRepository` | consumer-supplied (optional) |
+ * | Token                            | Port                       | Default adapter        |
+ * |----------------------------------|----------------------------|------------------------|
+ * | `PORTS.JWT_SIGNER`               | `IJwtSigner`               | `JoseJwtSigner`        |
+ * | `PORTS.PASSWORD_HASHER`          | `IPasswordHasher`          | `Argon2PasswordHasher` |
+ * | `PORTS.TOKEN_HASHER`             | `ITokenHasher`             | `CryptoTokenHasher`    |
+ * | `PORTS.LOGGER`                   | `ILogger`                  | `ConsoleLogger`        |
+ * | `PORTS.USER_REPOSITORY`          | `IUserRepository`          | consumer-supplied      |
+ * | `PORTS.REFRESH_TOKEN_REPOSITORY` | `IRefreshTokenRepository`  | consumer-supplied (optional) |
  *
  * ### Operations
  * | Method                 | Capability  | Description                              |
@@ -164,10 +162,11 @@ export class AuthService {
     }
 
     const hashed = await this.passwordHasher.hash(input.password);
-    const user = await this.userRepo.create({
+    const createInput: UserCreateInput = {
       email: input.email,
       password: hashed,
-    } as Partial<AuthUser>);
+    };
+    const user = await this.userRepo.create(createInput);
 
     if (!user?.id) throw new Error('User creation failed: no ID returned');
 
@@ -280,9 +279,8 @@ export class AuthService {
     }
 
     const hashed = await this.passwordHasher.hash(input.newPassword);
-    await this.userRepo.update(input.userId, {
-      password: hashed,
-    } as Partial<AuthUser>);
+    const updateInput: PasswordUpdateInput = { password: hashed };
+    await this.userRepo.update(input.userId, updateInput);
 
     return { message: 'Password changed successfully' };
   }
@@ -294,9 +292,8 @@ export class AuthService {
     }
 
     const hashed = await this.passwordHasher.hash(input.newPassword);
-    await this.userRepo.update(input.userId, {
-      password: hashed,
-    } as Partial<AuthUser>);
+    const updateInput: PasswordUpdateInput = { password: hashed };
+    await this.userRepo.update(input.userId, updateInput);
 
     return { message: 'Password set successfully' };
   }
@@ -319,23 +316,40 @@ export class AuthService {
    * });
    * ```
    *
-   * @throws `AuthError` with code `REFRESH_TOKEN_INVALID` for invalid,
-   *         expired, or malformed tokens (the same code is reused because
-   *         the failure mode is identical from the caller's perspective —
-   *         the token does not entitle access).
+   * @throws `AuthError` with code `ACCESS_TOKEN_INVALID` for invalid, expired,
+   *         or malformed tokens, and for tokens with the wrong `type` claim.
+   *         Infrastructure failures (KMS timeout, network error) from the
+   *         `IJwtSigner` adapter are re-thrown without wrapping.
    */
   async verifyAccessToken(token: string): Promise<RequestUser> {
+    let payload;
     try {
-      const payload = await this.jwtSigner.verify(token);
-      if (!payload.sub) throw new Error('missing sub');
-      if (payload.type !== 'access') throw new Error('wrong token type');
-      return { userId: payload.sub };
-    } catch {
+      payload = await this.jwtSigner.verify(token);
+    } catch (err) {
+      if (err instanceof InvalidTokenError) {
+        throw new AuthError(
+          AuthErrorCode.ACCESS_TOKEN_INVALID,
+          'Invalid or expired access token',
+        );
+      }
+      // Infrastructure failure — re-throw so it surfaces as a 500, not a 401.
+      throw err;
+    }
+
+    if (!payload.sub) {
       throw new AuthError(
-        AuthErrorCode.REFRESH_TOKEN_INVALID,
-        'Invalid or expired access token',
+        AuthErrorCode.ACCESS_TOKEN_INVALID,
+        'Invalid token: missing sub claim',
       );
     }
+    if (payload.type !== 'access') {
+      throw new AuthError(
+        AuthErrorCode.ACCESS_TOKEN_INVALID,
+        'Invalid token type: expected an access token',
+      );
+    }
+
+    return { userId: payload.sub };
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
@@ -367,11 +381,12 @@ export class AuthService {
     const ttlSeconds = parseDurationToSeconds(rtConfig.expiresIn);
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
-    await this.refreshTokenRepo!.create({
+    const createInput: Omit<IRefreshToken, 'id'> = {
       token: tokenHash,
       userId,
       expiresAt,
-    } as Omit<IRefreshToken, 'id'>);
+    };
+    await this.refreshTokenRepo!.create(createInput);
 
     return plainToken;
   }
@@ -390,3 +405,9 @@ export class AuthService {
     }
   }
 }
+
+// ── Named exports for GoogleStrategy (internal use only) ──────────────────
+// GoogleStrategy calls userRepo.create and userRepo.update with the same
+// narrow input shapes AuthService uses. Exporting them avoids duplicating
+// the types in the strategy file.
+export type { GoogleUserCreateInput, GoogleUserLinkInput };

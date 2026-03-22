@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import { InvalidTokenError } from '../interfaces/ports/jwt-signer.port';
 import { AUTH_CAPABILITIES, PORTS } from '../constants';
 import type { IJwtSigner } from '../interfaces/ports/jwt-signer.port';
 import type { IPasswordHasher } from '../interfaces/ports/password-hasher.port';
@@ -226,6 +227,19 @@ describe('AuthService', () => {
       );
     });
 
+    it('throws when userRepo.create returns no id', async () => {
+      const { service } = await buildService({
+        userRepo: {
+          findByEmail: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({}),
+        },
+      });
+
+      await expect(
+        service.register({ email: 'new@example.com', password: 'secret' }),
+      ).rejects.toThrow('User creation failed: no ID returned');
+    });
+
     it('returns only accessToken when refresh tokens are not configured', async () => {
       const { service } = await buildService({
         userRepo: { findByEmail: jest.fn().mockResolvedValue(null) },
@@ -434,6 +448,25 @@ describe('AuthService', () => {
         AuthErrorCode.REFRESH_TOKEN_INVALID,
       );
     });
+
+    it('throws AuthError USER_NOT_FOUND when the user referenced by the token no longer exists', async () => {
+      const { service } = await buildService({
+        refreshTokenRepo: {
+          consumeByTokenHash: jest.fn().mockResolvedValue({
+            id: 'rt-1',
+            token: 'hashed-token',
+            userId: 'deleted-user',
+            expiresAt: new Date(Date.now() + 86400_000),
+          }),
+        },
+        userRepo: { findById: jest.fn().mockResolvedValue(null) },
+      });
+
+      await expectAuthError(
+        service.rotateRefreshToken('plain-token'),
+        AuthErrorCode.USER_NOT_FOUND,
+      );
+    });
   });
 
   // ── logout ────────────────────────────────────────────────────────────────
@@ -465,20 +498,35 @@ describe('AuthService', () => {
       expect(result).toEqual({ userId: 'user-1' });
     });
 
-    it('throws AuthError REFRESH_TOKEN_INVALID when jwtSigner.verify throws', async () => {
+    it('throws AuthError ACCESS_TOKEN_INVALID when jwtSigner.verify throws InvalidTokenError', async () => {
       const { service } = await buildService({
         jwtSigner: {
-          verify: jest.fn().mockRejectedValue(new Error('expired')),
+          verify: jest
+            .fn()
+            .mockRejectedValue(new InvalidTokenError('token expired')),
         },
       });
 
       await expectAuthError(
         service.verifyAccessToken('bad'),
-        AuthErrorCode.REFRESH_TOKEN_INVALID,
+        AuthErrorCode.ACCESS_TOKEN_INVALID,
       );
     });
 
-    it('throws AuthError REFRESH_TOKEN_INVALID when payload type is not "access"', async () => {
+    it('re-throws non-InvalidTokenError errors as infrastructure failures (not wrapped in AuthError)', async () => {
+      const boom = new Error('KMS connection timeout');
+      const { service } = await buildService({
+        jwtSigner: { verify: jest.fn().mockRejectedValue(boom) },
+      });
+
+      // Must propagate as-is — not wrapped in AuthError — so it surfaces as 500.
+      await expect(service.verifyAccessToken('token')).rejects.toThrow(boom);
+      await expect(service.verifyAccessToken('token')).rejects.not.toThrow(
+        AuthError,
+      );
+    });
+
+    it('throws AuthError ACCESS_TOKEN_INVALID when payload type is not "access"', async () => {
       const { service } = await buildService({
         jwtSigner: {
           verify: jest.fn().mockResolvedValue({ sub: 'u', type: 'refresh' }),
@@ -487,11 +535,11 @@ describe('AuthService', () => {
 
       await expectAuthError(
         service.verifyAccessToken('refresh-token'),
-        AuthErrorCode.REFRESH_TOKEN_INVALID,
+        AuthErrorCode.ACCESS_TOKEN_INVALID,
       );
     });
 
-    it('throws AuthError REFRESH_TOKEN_INVALID when sub is missing', async () => {
+    it('throws AuthError ACCESS_TOKEN_INVALID when sub is missing', async () => {
       const { service } = await buildService({
         jwtSigner: {
           verify: jest.fn().mockResolvedValue({ sub: '', type: 'access' }),
@@ -500,7 +548,7 @@ describe('AuthService', () => {
 
       await expectAuthError(
         service.verifyAccessToken('token'),
-        AuthErrorCode.REFRESH_TOKEN_INVALID,
+        AuthErrorCode.ACCESS_TOKEN_INVALID,
       );
     });
   });
