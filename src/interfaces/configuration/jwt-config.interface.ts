@@ -56,6 +56,35 @@ export interface RefreshTokenConfig {
   tokenLength?: number;
 }
 
+// ── Duration parsing ───────────────────────────────────────────────────────
+
+/**
+ * Convert a duration string (`'15m'`, `'7d'`, `'2w'`) or a raw number of
+ * seconds into seconds as a number.
+ *
+ * Accepted unit suffixes: `s` (seconds), `m` (minutes), `h` (hours),
+ * `d` (days), `w` (weeks).
+ *
+ * Exported so consumers building cleanup jobs or computing token TTLs
+ * can reuse the same parsing logic used internally for `RefreshTokenConfig.expiresIn`.
+ */
+export function parseDurationToSeconds(value: string | number): number {
+  if (typeof value === 'number') return value;
+  const m = value.match(/^(\d+)([smhdw])$/);
+  // Groups 1 and 2 are guaranteed present when the regex matches.
+  if (!m || !m[1] || !m[2])
+    throw new Error(`[@odysseon/auth] Invalid duration format: "${value}"`);
+  const n = parseInt(m[1], 10);
+  const multipliers: Record<string, number> = {
+    s: 1,
+    m: 60,
+    h: 3600,
+    d: 86400,
+    w: 604800,
+  };
+  return n * (multipliers[m[2]] ?? /* istanbul ignore next */ 1);
+}
+
 // ── Type guards ────────────────────────────────────────────────────────────
 
 export function isSymmetric(cfg: JwtConfig): cfg is SymmetricJwtConfig {

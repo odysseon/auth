@@ -1,6 +1,28 @@
 import type { JwtConfig, JwtPayload } from '../index';
 
 /**
+ * Thrown by `IJwtSigner.verify()` when a token is cryptographically invalid,
+ * expired, or malformed — as opposed to an infrastructure failure (network,
+ * KMS timeout, etc.).
+ *
+ * `AuthService.verifyAccessToken()` catches this specific class and maps it
+ * to `AuthErrorCode.ACCESS_TOKEN_INVALID`. Any other error thrown by
+ * `verify()` is treated as unexpected and re-thrown without wrapping, so
+ * infrastructure failures surface as 500s rather than 401s.
+ *
+ * Every `IJwtSigner` implementation **must** throw `InvalidTokenError` (or a
+ * subclass) for token-level failures and let infrastructure errors propagate
+ * as-is.
+ */
+export class InvalidTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTokenError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
  * Port: JWT signing and verification.
  *
  * `AuthService` and `JwtStrategy` depend only on this interface.
@@ -16,7 +38,6 @@ import type { JwtConfig, JwtPayload } from '../index';
  *   private secret!: string;
  *
  *   async init(config: JwtConfig): Promise<void> {
- *     // Extract key material once at startup.
  *     this.secret = (config as SymmetricJwtConfig).secret as string;
  *   }
  *
@@ -25,7 +46,13 @@ import type { JwtConfig, JwtPayload } from '../index';
  *   }
  *
  *   async verify(token: string): Promise<JwtPayload> {
- *     return jwt.verify(token, this.secret) as JwtPayload;
+ *     try {
+ *       return jwt.verify(token, this.secret) as JwtPayload;
+ *     } catch (err) {
+ *       // Wrap token-level errors as InvalidTokenError so AuthService can
+ *       // distinguish them from infrastructure failures.
+ *       throw new InvalidTokenError((err as Error).message);
+ *     }
  *   }
  * }
  *
@@ -35,8 +62,8 @@ import type { JwtConfig, JwtPayload } from '../index';
  *
  * ### Why `init()` instead of constructor injection?
  * Key material may require async I/O (reading PEM files, calling a KMS).
- * `init()` is called once during `AuthService.onModuleInit()`, keeping
- * NestJS constructors synchronous and side-effect free.
+ * `init()` is called once during `AuthService.init()` at application boot,
+ * keeping constructors synchronous and side-effect free.
  */
 export interface IJwtSigner {
   /**
@@ -62,9 +89,11 @@ export interface IJwtSigner {
    * and `JwtStrategy` so that the discriminator is enforced consistently
    * regardless of which adapter is in use.
    *
-   * @throws Any error on invalid signature, expiry, or claim mismatch.
-   *         `AuthService` will wrap thrown errors in `AuthError` with code
-   *         `REFRESH_TOKEN_INVALID`.
+   * **Error contract:**
+   * - Throw `InvalidTokenError` for token-level failures (bad signature,
+   *   expired, malformed, wrong issuer/audience).
+   * - Let infrastructure errors (KMS timeout, network failure) propagate
+   *   as-is so `AuthService` can distinguish them from auth failures.
    */
   verify(token: string): Promise<JwtPayload>;
 }

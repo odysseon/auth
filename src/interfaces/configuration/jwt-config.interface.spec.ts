@@ -2,6 +2,7 @@ import {
   isSymmetric,
   isAsymmetric,
   validateJwtConfig,
+  parseDurationToSeconds,
 } from './jwt-config.interface';
 import type { JwtConfig } from './jwt-config.interface';
 
@@ -150,5 +151,48 @@ describe('validateJwtConfig', () => {
         }),
       ).toThrow('at least 16 bytes');
     });
+  });
+});
+
+describe('parseDurationToSeconds', () => {
+  it('returns the number unchanged when passed a number', () => {
+    expect(parseDurationToSeconds(900)).toBe(900);
+    expect(parseDurationToSeconds(0)).toBe(0);
+  });
+
+  it('parses seconds (s)', () => {
+    expect(parseDurationToSeconds('30s')).toBe(30);
+  });
+
+  it('parses minutes (m)', () => {
+    expect(parseDurationToSeconds('15m')).toBe(900);
+  });
+
+  it('parses hours (h)', () => {
+    expect(parseDurationToSeconds('2h')).toBe(7200);
+  });
+
+  it('parses days (d)', () => {
+    expect(parseDurationToSeconds('7d')).toBe(604800);
+  });
+
+  it('parses weeks (w)', () => {
+    expect(parseDurationToSeconds('2w')).toBe(1_209_600);
+  });
+
+  it('throws on an unrecognised suffix', () => {
+    expect(() => parseDurationToSeconds('1y')).toThrow(
+      'Invalid duration format',
+    );
+  });
+
+  it('throws on a plain string with no suffix', () => {
+    expect(() => parseDurationToSeconds('600')).toThrow(
+      'Invalid duration format',
+    );
+  });
+
+  it('throws on an empty string', () => {
+    expect(() => parseDurationToSeconds('')).toThrow('Invalid duration format');
   });
 });

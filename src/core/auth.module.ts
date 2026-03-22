@@ -124,7 +124,9 @@ export interface AuthModuleAdapterOverrides {
   logger?: Type<ILogger>;
 }
 
-// ── Internal OnModuleInit wrapper ─────────────────────────────────────────
+// Internal Symbol for the refresh-token config validation guard provider.
+// A Symbol avoids the accidental-override risk of a plain string token.
+const REFRESH_TOKEN_CONFIG_GUARD = Symbol('REFRESH_TOKEN_CONFIG_GUARD');
 
 /**
  * Internal NestJS lifecycle hook that calls `AuthService.init()` at startup.
@@ -299,7 +301,7 @@ export class AuthModule {
     // ── Refresh token repository (optional) ───────────────────────────────
     if (options.refreshTokenRepository) {
       const configValidationProvider: Provider = {
-        provide: 'REFRESH_TOKEN_CONFIG_GUARD',
+        provide: REFRESH_TOKEN_CONFIG_GUARD,
         useFactory: (cfg: AuthModuleConfig) => {
           if (!cfg.jwt.refreshToken) {
             throw new Error(
@@ -322,6 +324,25 @@ export class AuthModule {
 
     // ── Google capability (optional) ──────────────────────────────────────
     if (options.enabledCapabilities.includes('google')) {
+      // Validate Google config at DI resolution time rather than at the first
+      // OAuth redirect — catches missing clientID/clientSecret/callbackURL
+      // at application startup.
+      const googleConfigValidationProvider: Provider = {
+        provide: Symbol('GOOGLE_CONFIG_GUARD'),
+        useFactory: (cfg: AuthModuleConfig) => {
+          const g = cfg.google;
+          if (!g?.clientID || !g?.clientSecret || !g?.callbackURL) {
+            throw new Error(
+              "[@odysseon/auth] 'google' is listed in enabledCapabilities but " +
+                'google.clientID, google.clientSecret, and google.callbackURL ' +
+                'are all required. Check your useFactory return value.',
+            );
+          }
+          return true;
+        },
+        inject: [AUTH_CONFIG],
+      };
+      providers.push(googleConfigValidationProvider);
       providers.push(GoogleStrategy, GoogleOAuthGuard);
       moduleExports.push(GoogleOAuthGuard);
     }
