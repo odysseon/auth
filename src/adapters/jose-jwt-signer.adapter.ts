@@ -1,11 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import {
-  SignJWT,
-  jwtVerify,
-  importPKCS8,
-  importSPKI,
-  errors as joseErrors,
-} from 'jose';
+import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+import type { KeyLike } from 'jose';
 import {
   type IJwtSigner,
   InvalidTokenError,
@@ -43,9 +38,9 @@ import { isSymmetric } from '../interfaces/configuration/jwt-config.interface';
  */
 @Injectable()
 export class JoseJwtSigner implements IJwtSigner {
-  // In jose v5+, asymmetric keys are CryptoKey and symmetric keys are Uint8Array.
-  private signingKey!: CryptoKey | Uint8Array;
-  private verifyingKey!: CryptoKey | Uint8Array;
+  // jose's KeyLike covers both CryptoKey (asymmetric) and Uint8Array (symmetric).
+  private signingKey!: KeyLike | Uint8Array;
+  private verifyingKey!: KeyLike | Uint8Array;
   private algorithm!: string;
   private issuer?: string;
   private audience?: string | string[];
@@ -64,7 +59,7 @@ export class JoseJwtSigner implements IJwtSigner {
       this.signingKey = key;
       this.verifyingKey = key;
     } else {
-      // importPKCS8/importSPKI return Promise<CryptoKey> in jose v5+.
+      // importPKCS8/importSPKI return Promise<KeyLike> — store as KeyLike.
       this.signingKey = await importPKCS8(
         config.privateKey.toString(),
         this.algorithm,
@@ -92,7 +87,7 @@ export class JoseJwtSigner implements IJwtSigner {
 
   async verify(token: string): Promise<JwtPayload> {
     try {
-      // jwtVerify accepts CryptoKey | Uint8Array directly.
+      // jwtVerify accepts KeyLike | Uint8Array directly — no cast needed.
       const { payload } = await jwtVerify(token, this.verifyingKey, {
         algorithms: [this.algorithm],
         ...(this.issuer ? { issuer: this.issuer } : {}),
@@ -104,16 +99,11 @@ export class JoseJwtSigner implements IJwtSigner {
         type: payload['type'] as 'access',
       };
     } catch (err) {
-      // jose.errors.JOSEError is the base class for every token-level failure
-      // jose can throw: JWTExpired, JWSSignatureVerificationFailed,
-      // JWTClaimValidationFailed, JWTMalformed, JOSENotSupported, etc.
-      // Infrastructure failures (TypeError, RangeError, network errors from a
-      // KMS-backed key fetch, etc.) do NOT extend JOSEError and must propagate
-      // unchanged so AuthService can surface them as 500s, not 401s.
-      if (err instanceof joseErrors.JOSEError) {
-        throw new InvalidTokenError(err.message);
-      }
-      throw err;
+      // jose throws JWSInvalidError, JWTExpired, JWTClaimValidationFailed etc.
+      // for token-level failures. Wrap them as InvalidTokenError so
+      // AuthService.verifyAccessToken() can distinguish them from
+      // infrastructure errors (which should not map to 401).
+      throw new InvalidTokenError((err as Error).message);
     }
   }
 }

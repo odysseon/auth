@@ -40,4 +40,26 @@ describe('Argon2PasswordHasher', () => {
       expect(await hasher.verify('password', '')).toBe(false);
     });
   });
+
+  describe('missing argon2 package', () => {
+    it('throws a descriptive error when argon2 is not installed', async () => {
+      // jest.isolateModules creates a fresh module registry scoped to this
+      // callback. jest.mock inside it is registered before any require() runs,
+      // so the dynamic import('argon2') compiled to require() sees the mock.
+      await jest.isolateModules(async () => {
+        jest.mock('argon2', () => {
+          throw new Error('Cannot find module');
+        });
+
+        const { Argon2PasswordHasher: FreshHasher } =
+          await import('./argon2-password-hasher.adapter');
+
+        const freshHasher = new FreshHasher();
+
+        await expect(freshHasher.hash('password')).rejects.toThrow(
+          'Argon2PasswordHasher requires the `argon2` package',
+        );
+      });
+    });
+  });
 });

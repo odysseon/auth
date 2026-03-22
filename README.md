@@ -158,6 +158,11 @@ AuthModule.forRootAsync({
 })
 ```
 
+> **`enabledCapabilities`:** `'credentials'` (email/password) is always active.
+> `'google'` is opt-in — omit it and `GoogleStrategy`/`GoogleOAuthGuard` are never
+> registered and `passport-google-oauth20` is never loaded.
+```
+
 ### 4. Use in controllers
 
 ```ts
@@ -295,6 +300,85 @@ const module = await Test.createTestingModule({ ... })
 
 No real crypto runs in tests. Blazing fast, zero flakiness.
 
+## Using `AuthService` without NestJS
+
+`AuthService` is a plain class. Every dependency is injected through its constructor — no framework lifecycle, no decorators at runtime. You can instantiate it directly in Fastify, Express, Lambda, or any other Node.js context.
+
+```ts
+// fastify-main.ts
+import Fastify from 'fastify';
+import {
+  AuthService, AuthError, AuthErrorCode,
+  JoseJwtSigner, Argon2PasswordHasher, CryptoTokenHasher, ConsoleLogger,
+} from '@odysseon/auth';
+
+const authService = new AuthService(
+  {
+    type: 'symmetric',
+    secret: process.env.JWT_SECRET!,
+    accessToken: { expiresIn: '15m' },
+    refreshToken: { expiresIn: '7d' },
+  },
+  new JoseJwtSigner(),
+  new Argon2PasswordHasher(),
+  new CryptoTokenHasher(),
+  new ConsoleLogger(),
+  new MyUserRepository(),         // implements IUserRepository
+  new MyRefreshTokenRepository(), // implements IRefreshTokenRepository
+);
+
+// Call once at startup — validates config and imports JWT keys.
+await authService.init();
+
+const fastify = Fastify();
+
+// Map AuthError codes to HTTP responses manually (no AuthExceptionFilter needed)
+const STATUS: Record<string, number> = {
+  [AuthErrorCode.INVALID_CREDENTIALS]:      401,
+  [AuthErrorCode.EMAIL_ALREADY_EXISTS]:     409,
+  [AuthErrorCode.ACCESS_TOKEN_INVALID]:     401,
+  [AuthErrorCode.REFRESH_TOKEN_INVALID]:    401,
+  [AuthErrorCode.REFRESH_TOKEN_EXPIRED]:    401,
+  [AuthErrorCode.USER_NOT_FOUND]:           404,
+  [AuthErrorCode.REFRESH_NOT_ENABLED]:      501,
+};
+
+fastify.post('/auth/register', async (req, reply) => {
+  try {
+    return await authService.register(req.body as any);
+  } catch (err) {
+    if (err instanceof AuthError) return reply.status(STATUS[err.code] ?? 500).send({ error: err.code });
+    throw err;
+  }
+});
+
+fastify.post('/auth/login', async (req, reply) => {
+  try {
+    return await authService.loginWithCredentials(req.body as any);
+  } catch (err) {
+    if (err instanceof AuthError) return reply.status(STATUS[err.code] ?? 500).send({ error: err.code });
+    throw err;
+  }
+});
+
+// Protect routes with a preHandler hook — no Passport, no guards
+fastify.addHook('preHandler', async (req, reply) => {
+  const open = ['/auth/register', '/auth/login', '/auth/refresh'];
+  if (open.includes(req.url)) return;
+  const token = (req.headers.authorization ?? '').slice(7);
+  if (!token) return reply.status(401).send({ error: 'Missing token' });
+  try {
+    (req as any).user = await authService.verifyAccessToken(token);
+  } catch {
+    return reply.status(401).send({ error: 'Invalid token' });
+  }
+});
+
+await fastify.listen({ port: 3000 });
+```
+
+Only `AuthService` and the default adapter classes are needed outside NestJS. `AuthModule`, `JwtAuthGuard`, `GoogleOAuthGuard`, `AuthExceptionFilter`, `@CurrentUser()`, `@Public()`, and `GoogleStrategy` all require NestJS and are irrelevant in this context.
+
 ## Exported API
 
 | Export | Description |
@@ -324,7 +408,16 @@ No real crypto runs in tests. Blazing fast, zero flakiness.
 | `IUserRepository` | Port — implement in your infra layer |
 | `IRefreshTokenRepository` | Port — implement in your infra layer |
 | `PORTS`, `AUTH_CAPABILITIES` | DI tokens for testing overrides |
-| All other interfaces | Full type surface |
+| `parseDurationToSeconds` | Utility — converts `'15m'`/`'7d'` duration strings to seconds |
+| `JwtConfig`, `RefreshTokenConfig` | Config types for JWT setup |
+| `GoogleOAuthConfig` | Config type for Google OAuth setup |
+| `AuthModuleConfig` | Top-level config object shape |
+| `AuthUser`, `BaseUser`, `CredentialsUser`, `GoogleUser` | User entity contracts |
+| `RequestUser` | Shape of `req.user` after JWT validation |
+| `AuthenticatedRequest` | Request object extended with `user: RequestUser` |
+| `AuthResponse`, `TokenPair` | Token response shapes |
+| `JwtPayload` | Claims embedded in every access token |
+| `LoginInput`, `RegistrationInput`, `PasswordChangeInput`, `PasswordSetInput` | Operation input shapes |
 
 ## Environment variables
 

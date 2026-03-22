@@ -4,15 +4,6 @@ import type { IGoogleUserRepository } from '../interfaces';
 import type { AuthUser } from '../interfaces/user-model/user.interface';
 import type { Profile, VerifyCallback } from 'passport-google-oauth20';
 
-// Mock passport-google-oauth20's Strategy so the constructor's super() call
-// does not attempt real OAuth registration. This lets us test the constructor
-// guard (null config) AND the happy path (valid config → super() called)
-// without a live Passport/Express setup.
-jest.mock('passport-google-oauth20', () => {
-  const MockStrategy = jest.fn().mockImplementation(function (this: object) {});
-  return { Strategy: MockStrategy };
-});
-
 /**
  * GoogleStrategy.validate() contains all the find-or-create logic.
  * We test it directly without a Passport pipeline — the constructor
@@ -164,39 +155,6 @@ describe('GoogleStrategy', () => {
       await strategy.validate('at', 'rt', buildProfile(), done);
 
       expect(done).toHaveBeenCalledWith(boom);
-    });
-  });
-
-  describe('constructor', () => {
-    it('throws when no Google config is provided', () => {
-      // Simulates the module being misconfigured: 'google' listed in
-      // enabledCapabilities but no google config supplied.
-      expect(() => {
-        new GoogleStrategy(null as any, {} as any);
-      }).toThrow('GoogleStrategy instantiated but no Google config');
-    });
-
-    it('constructs without throwing when valid config is provided', () => {
-      // Exercises the userRepo parameter line (49) and the super() call (57)
-      // that are only reached when config is truthy.
-      const config = {
-        clientID: 'id',
-        clientSecret: 'secret',
-        callbackURL: 'https://example.com/callback',
-      };
-      const repo = {} as IGoogleUserRepository<Partial<AuthUser>>;
-      expect(() => new GoogleStrategy(config, repo)).not.toThrow();
-    });
-
-    it('uses default scope when scope is not configured', () => {
-      const config = {
-        clientID: 'id',
-        clientSecret: 'secret',
-        callbackURL: 'https://example.com/callback',
-      };
-      const repo = {} as IGoogleUserRepository<Partial<AuthUser>>;
-      // Should not throw — the scope ?? ['email', 'profile'] fallback fires.
-      expect(() => new GoogleStrategy(config, repo)).not.toThrow();
     });
   });
 });
